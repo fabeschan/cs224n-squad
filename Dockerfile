@@ -21,4 +21,3 @@ RUN git clone https://www.github.com/datalogai/recurrentshop.git
 WORKDIR recurrentshop
 RUN python setup.py install
 
-ENTRYPOINT bash
