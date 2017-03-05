@@ -84,7 +84,7 @@ if __name__ == '__main__':
 
     '''
     try to plot the histogram of length
-    '''
+    
     train_context_lengthlist = datas[3]
     plt.hist(train_context_lengthlist)
     #plt.axis([0, 42, 50000, 85000])
@@ -114,7 +114,7 @@ if __name__ == '__main__':
     plt.grid(True)
     output_path = "{}.png".format("span")
     plt.savefig(output_path)
-
+'''
     # create the model
     embedding_vecor_length = 32
     model = Sequential()
