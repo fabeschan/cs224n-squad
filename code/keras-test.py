@@ -32,7 +32,8 @@ train_size = 81381
 max_length_context = 766
 max_length_question = 60
 max_x_length = max_length_context + max_length_question
-n_classes = 293761
+#n_classes = 293761
+n_classes = 2
 glove_size = 115613
 
 source_dir = os.path.join("data", "squad")
@@ -71,18 +72,26 @@ if __name__ == '__main__':
     datas = loaddata()
     padded_data = padding(datas)
 
+
     # create the model
     embedding_vecor_length = 32
     model = Sequential()
-    model.add(Embedding(input_dim=115613, output_dim=128, input_length=max_x_length))
+    model.add(Embedding(input_dim=115613, output_dim=128, input_length=max_length_question))
     model.add(LSTM(100))
-    model.add(Dense(output_dim=n_classes, activation='softmax'))
+    model.add(Dense(output_dim=max_length_context, activation='softmax'))
     model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
     print(model.summary())
 
-    combined_input = np.concatenate(padded_data, axis = 1)
-    classed_span = np_utils.to_categorical(datas[2], nb_classes=n_classes)
-    model.fit(combined_input, classed_span, nb_epoch=10, batch_size=128, validation_split=0.1)
+    #combined_input = np.concatenate(padded_data, axis = 1)
+    #now combined_input includes only questions
+    combined_input = padded_data[1]
+
+    output = np.zeros(max_length_context)
+    span = datas[2]
+    output[span[0]: span[1]] = 1
+    
+    classed_context = np_utils.to_categorical(output, nb_classes=n_classes)
+    model.fit(combined_input, classed_context, nb_epoch=10, batch_size=128, validation_split=0.1)
 
     '''
     # Final evaluation of the model
