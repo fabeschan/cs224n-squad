@@ -56,7 +56,8 @@ def loaddata():
         for line in f:
             val = [int(x) for x in line.split()]
             #res = int_list[0]*max_length_context + int_list[1]
-            res = n_classes - (max_length_context - (val[0]-1))*(max_length_context-(val[0]-1)+1)/2 + (val[1]-val[0]+1)
+            #res = n_classes - (max_length_context - (val[0]-1))*(max_length_context-(val[0]-1)+1)/2 + (val[1]-val[0]+1)
+            res = val
             train_span.append(res)
 
     return[train_context, train_question, train_span]
