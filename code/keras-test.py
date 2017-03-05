@@ -70,6 +70,7 @@ def loaddata():
     return[train_context, train_question, train_span, train_context_lengthlist, train_question_lengthlist, train_span_lengthlist]
 '''
 try to plot histogram 
+EEEEE
 '''
 if __name__ == '__main__':
     datas = loaddata()
