@@ -16,19 +16,6 @@ from keras.utils import np_utils
 # fix random seed for reproducibility
 np.random.seed(7)
 
-'''
-# load the dataset but only keep the top n words, zero the rest
-top_words = 5000
-(X_train, y_train), (X_test, y_test) = imdb.load_data(nb_words=top_words)
-
-# truncate and pad input sequences
-max_review_length = 500
-X_train = sequence.pad_sequences(X_train, maxlen=max_review_length)
-X_test = sequence.pad_sequences(X_test, maxlen=max_review_length)
-
-# ========================================================
-'''
-
 train_size = 81381
 max_length_context = 766
 max_length_question = 60
@@ -84,7 +71,7 @@ if __name__ == '__main__':
 
     '''
     try to plot the histogram of length
-    
+
     train_context_lengthlist = datas[3]
     plt.hist(train_context_lengthlist)
     #plt.axis([0, 42, 50000, 85000])
@@ -128,33 +115,4 @@ if __name__ == '__main__':
     #now combined_input includes only questions
     combined_input = padded_data[1]
     model.fit(combined_input, padded_data[2], nb_epoch=10, batch_size=128, validation_split=0.1)
-    
-    '''
-    # Final evaluation of the model
-    scores = model.evaluate(X_test, y_test, verbose=0)
-    print("Accuracy: %.2f%%" % (scores[1]*100))
-
-    # ===================================
-
-    combined_input = np.concatenate(padded_data, axis = 1)
-
-    classed_span = to_categorical(datas[2], nb_classes= n_classes)
-    print(combined_input.shape)
-    print(classed_span[88])
-
-    #glove = np.load(source_dir+'/glove.trimmed.100.npz')['glove']
-    #print(glove.shape)
-
-    net = input_data(shape=[None, max_x_length])
-    net = embedding(net, input_dim=115613, output_dim=128)
-    net = bidirectional_rnn(net, BasicLSTMCell(128), BasicLSTMCell(128))
-    net = dropout(net, 0.8)
-    net = fully_connected(net, n_classes, activation='softmax')
-    net = regression(net, optimizer='adam', loss='categorical_crossentropy')
-    print('hiii')
-
-
-    model = tflearn.DNN(net, clip_gradients=0., tensorboard_verbose=2)
-    model.fit(combined_input, classed_span, validation_set=0.1, show_metric=True, batch_size=64)
-    '''
 
