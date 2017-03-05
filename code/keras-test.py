@@ -68,41 +68,7 @@ def loaddata():
             train_span.append(res)
             count += 1
     return[train_context, train_question, train_span, train_context_lengthlist, train_question_lengthlist, train_span_lengthlist]
-'''
-try to plot histogram 
-EEEEE
-'''
-if __name__ == '__main__':
-    datas = loaddata()
-    train_context_lengthlist = datas[3]
-    plt.hist(train_context_lengthlist)
-    #plt.axis([0, 42, 50000, 85000])
-    plt.xlabel('train_context_lengthlist')
-    plt.ylabel('Frequency')
-    plt.title('Train_context length Histogram')
-    plt.grid(True)
-    output_path = "{}.png".format("context")
-    plt.savefig(output_path)
 
-    train_question_lengthlist = datas[4]
-    plt.hist(train_question_lengthlist)
-    #plt.axis([0, 42, 50000, 85000])
-    plt.xlabel('train_question_lengthlist')
-    plt.ylabel('Frequency')
-    plt.title('Train_question length Histogram')
-    plt.grid(True)
-    output_path = "{}.png".format("question")
-    plt.savefig(output_path)
-
-    train_span_lengthlist = datas[5]
-    plt.hist(train_span_lengthlist)
-    #plt.axis([0, 42, 50000, 85000])
-    plt.xlabel('train_span_lengthlist')
-    plt.ylabel('Frequency')
-    plt.title('Train_span length Histogram')
-    plt.grid(True)
-    output_path = "{}.png".format("span")
-    plt.savefig(output_path)
 
 
 def padding(datalist):
