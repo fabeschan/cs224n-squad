@@ -312,11 +312,32 @@ class QASystem(object):
         # so that you can use your trained model to make predictions, or
         # even continue training
 
+
+        def load_dataset(batchsize, *filenames):
+            files = [open(f) for f in filenames]
+            batch = []
+            for i in range(len(files[0])):
+                batch.append((f.readline() for f in files))
+                if len(batch) == batchsize:
+                    yield batch
+            if len(batch) > 0:
+                yield batch
+
         tic = time.time()
         params = tf.trainable_variables()
         num_params = sum(map(lambda t: np.prod(tf.shape(t.value()).eval()), params))
         toc = time.time()
         logging.info("Number of params: %d (retreival took %f secs)" % (num_params, toc - tic))
-        for p, q, a in dataset:
-            loss = self.optimize(session, )
+
+        for e in range(FLAGS.epochs):
+            for p, q, a in dataset:
+                # transfer a to be start_ans and end_ans
+                loss = self.optimize(session, p, q, start_answer, end_answer)
+            ## save the model
+            saver = tf.Saver()
+
+            val_loss = self.validate(dataset_train)
+
+            f1_train = self.evaluate_answer(session, dataset_train)
+            f1_test = self.evaluate_answer(session, dataset_test, sample=100)
 
