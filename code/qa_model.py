@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import time
 import logging
+import random
 
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -249,7 +250,7 @@ class QASystem(object):
 
         return valid_cost
 
-    def evaluate_answer(self, session, dataset, sample=100, log=False):
+    def evaluate_answer(self, session, dataset, sample=None, log=False):
         """
         Evaluate the model's performance using the harmonic mean of F1 and Exact Match (EM)
         with the set of true answer labels
@@ -268,9 +269,13 @@ class QASystem(object):
         f1_values = 0.0
         em_values = 0.0
 
+        if sample:
+            sample_indices = random.sample(len(dataset), k=sample)
+            dataset = dataset[sample_indices]
+
         for p, q, ground_truth in dataset:
             a_s, a_e = self.answer(session, p, q)
-            prediction = paragraph[a_s: a_e + 1]
+            prediction = paragraph[a_s: a_e+1]
             f1_values += 1.0 / f1_score(prediction, ground_truth)
             em_values += 1.0 / exact_match_score(prediction, ground_truth)
 
@@ -312,12 +317,16 @@ class QASystem(object):
         # so that you can use your trained model to make predictions, or
         # even continue training
 
-
         def load_dataset(batchsize, *filenames):
             files = [open(f) for f in filenames]
             batch = []
             for i in range(len(files[0])):
-                batch.append((f.readline() for f in files))
+                example = []
+                for f in files:
+                    int_list = [int(x) for x in f.readline().split()]
+                    example.append(int_list)
+                batch.append(example)
+
                 if len(batch) == batchsize:
                     yield batch
             if len(batch) > 0:
@@ -338,6 +347,5 @@ class QASystem(object):
 
             val_loss = self.validate(dataset_train)
 
-            f1_train = self.evaluate_answer(session, dataset_train)
-            f1_test = self.evaluate_answer(session, dataset_test, sample=100)
-
+            f1_train, em_train = self.evaluate_answer(session, dataset_train, sample=100)
+            f1_val, em_val = self.evaluate_answer(session, dataset_test)
