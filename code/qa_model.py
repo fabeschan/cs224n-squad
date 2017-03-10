@@ -33,6 +33,7 @@ class Encoder(object):
         self.size = size
         self.vocab_dim = vocab_dim
         self.cell = tf.nn.rnn_cell.BasicLSTMCell(self.size)
+        print(self.cell.state_size)
 
     def encode(self, inputs, masks, encoder_state_input, scope='', reuse=False):
         """
@@ -61,7 +62,7 @@ class Encoder(object):
             dtype=tf.float64,
             scope=scope
         )
-        return outputs, state[0] #TODO: ????
+        return outputs, state #TODO: ????
 
 
 class Decoder(object):
@@ -151,9 +152,9 @@ class QASystem(object):
         :return:
         """
         q_o, h_q = self.encoder.encode(scope='q_enc', inputs=self.question_var, masks=self.question_masks, encoder_state_input=None)
-        p_o, h_p = self.encoder.encode(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, encoder_state_input=None, reuse=True)
+        p_o, h_p = self.encoder.encode(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, encoder_state_input=h_q, reuse=True)
 
-        self.a_s, self.a_e = self.decoder.decode(h_q, h_p)
+        self.a_s, self.a_e = self.decoder.decode(h_q[0], h_p[0]) #need double check
 
 
     def setup_loss(self):
