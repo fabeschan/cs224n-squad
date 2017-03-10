@@ -2,4 +2,4 @@ nvidia-docker run \
     -it \
     --workdir=/opt \
     -v `pwd`:/opt \
-    keras $@
+    tensorflow/tensorflow:0.12.1-gpu $@

@@ -77,11 +77,59 @@ def get_normalized_train_dir(train_dir):
     os.symlink(os.path.abspath(train_dir), global_train_dir)
     return global_train_dir
 
+def load_dataset(batchsize, *filenames):
+    files = [open(f) for f in filenames]
+    batch = []
+    for i in range(len(files[0])):
+	example = []
+	for f in files:
+	    int_list = [int(x) for x in f.readline().split()]
+	    example.append(int_list)
+	batch.append(example)
+
+	if len(batch) == batchsize:
+	    yield batch
+            batch = []
+    if len(batch) > 0:
+	yield batch
+
+def load_padded_data(batch):
+    padded_batch = []
+    for paragraph, question, answer in batch:
+        #pad paragraph
+        _paragraph, mask_paragraph = padding(FLAGS.output_size, paragraph)
+        _question, mask_question = padding(FLAGS.question_size, question)
+        padded_batch.append(_paragraph, paragraph_mask, _question, question_mask, answer)
+    return padded_batch
+
+def padding(maxlength, vector):
+    original_length = len(vector)
+    gap = maxlength - original_length
+    if(gap > 0):
+        mask = [1]*original_length + [0]*gap
+        _vector = vector + gap*[0]
+    else:
+        mask = [True]*max_length
+        _vector = vector[:max_length]
+    return (_vector, mask)
+
 
 def main(_):
 
     # Do what you need to load datasets from FLAGS.data_dir
-    dataset = None
+    dataset_train = load_dataset(
+        FLAGS.batch_size,
+        FLAGS.data_dir+'squad/train.ids.context',
+        FLAGS.data_dir+'squad/train.ids.quesion',
+        FLAGS.data_dir+'squad/train.span'
+    )
+
+    dataset_val = load_dataset(
+        FLAGS.batch_size,
+        FLAGS.data_dir+'squad/val.ids.context',
+        FLAGS.data_dir+'squad/val.ids.quesion',
+        FLAGS.data_dir+'squad/val.span'
+    )
 
     embed_path = FLAGS.embed_path or pjoin("data", "squad", "glove.trimmed.{}.npz".format(FLAGS.embedding_size))
     vocab_path = FLAGS.vocab_path or pjoin(FLAGS.data_dir, "vocab.dat")
@@ -90,7 +138,7 @@ def main(_):
     encoder = Encoder(size=FLAGS.state_size, vocab_dim=FLAGS.embedding_size)
     decoder = Decoder(output_size=FLAGS.output_size)
 
-    qa = QASystem(encoder, decoder)
+    qa = QASystem(encoder, decoder, embed_path)
 
     if not os.path.exists(FLAGS.log_dir):
         os.makedirs(FLAGS.log_dir)
@@ -106,7 +154,7 @@ def main(_):
         initialize_model(sess, qa, load_train_dir)
 
         save_train_dir = get_normalized_train_dir(FLAGS.train_dir)
-        qa.train(sess, dataset, save_train_dir)
+        qa.train(sess, dataset_train, dataset_val, save_train_dir)
 
         qa.evaluate_answer(sess, dataset, vocab, FLAGS.evaluate, log=True)
 

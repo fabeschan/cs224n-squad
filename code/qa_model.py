@@ -10,7 +10,7 @@ import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from tensorflow.python.ops import variable_scope as vs
-from train import initialize_vocab
+#from train import initialize_vocab
 from evaluate import exact_match_score, f1_score
 
 FLAGS = tf.app.flags.FLAGS
@@ -51,14 +51,15 @@ class Encoder(object):
                  or both.
         """
 
-        srclen = tf.reduce_sum(masks, axis=0) # TODO: choose correct axis!
+        seqlen = tf.reduce_sum(masks, axis=0) # TODO: choose correct axis!
         # (fw_o, bw_o), _ = birectional_dynamic_rnn(self.cell, inputs, srclen=srclen, intial_state=None)
 
-        outputs, state = dynamic_rnn(
+        outputs, state = tf.nn.dynamic_rnn(
             self.cell,
             inputs,
-            sequence_length=seclen,
+            sequence_length=seqlen,
             initial_state=encoder_state_input,
+            dtype=tf.float64,
             scope=scope
         )
         return outputs, state #TODO: ????
@@ -80,16 +81,16 @@ class Decoder(object):
                               decided by how you choose to implement the encoder
         :return:
         """
-        with vs.scope("answer_start"):
-            a_s = rnn_cell._linear([h_q, h_p], output_size=self.output_size)
-        with vs.scope("answer_end"):
-            a_e = rnn_cell._linear([h_q, h_p], output_size=self.output_size)
+        with vs.variable_scope("answer_start"):
+            a_s = tf.nn.rnn_cell._linear([h_q, h_p], FLAGS.output_size, True)
+        with vs.variable_scope("answer_end"):
+            a_e = tf.nn.rnn_cell._linear([h_q, h_p], FLAGS.output_size, True)
 
 
         return a_s, a_e
 
 class QASystem(object):
-    def __init__(self, encoder, decoder, *args):
+    def __init__(self, encoder, decoder, embed_path, *args):
         """
         Initializes your System
 
@@ -98,11 +99,16 @@ class QASystem(object):
         :param args: pass in more arguments as needed
         """
 
+        self.embed_path = embed_path
+        self.encoder, self.decoder = encoder, decoder
+
         # ==== set up placeholder tokens ========
-        self.question = tf.placeholder(shape=[None, ??????])
-        self.paragraph = tf.placeholder(shape=[None, FLAGS.output_size])
-        self.start_answer = tf.placeholder(shape=[None, FLAGS.output_size])
-        self.end_answer = tf.placeholder(shape=[None, FLAGS.output_size])
+        self.question = tf.placeholder(shape=[None, FLAGS.question_size], dtype=tf.int32)
+        self.question_masks = tf.placeholder(shape=[None, FLAGS.question_size], dtype=tf.int32)
+        self.paragraph = tf.placeholder(shape=[None, FLAGS.output_size], dtype=tf.int32)
+        self.paragraph_masks = tf.placeholder(shape=[None, FLAGS.output_size], dtype=tf.int32)
+        self.start_answer = tf.placeholder(shape=[None, FLAGS.output_size], dtype=tf.int32)
+        self.end_answer = tf.placeholder(shape=[None, FLAGS.output_size], dtype=tf.int32)
 
         # ==== assemble pieces ====
         with tf.variable_scope("qa", initializer=tf.uniform_unit_scaling_initializer(1.0)):
@@ -117,7 +123,7 @@ class QASystem(object):
         # "adam" or "sgd"
         self.updates = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate).minimize(self.loss)
         vocab_path = FLAGS.vocab_path or pjoin(FLAGS.data_dir, "vocab.dat")
-        self.vocab, self.rev_vocab = initialize_vocab(FLAGS.vocab_path)
+        #self.vocab, self.rev_vocab = initialize_vocab(FLAGS.vocab_path)
 
     def setup_system(self):
         """
@@ -126,12 +132,10 @@ class QASystem(object):
         to assemble your reading comprehension system!
         :return:
         """
-        encoder = Encoder(FLAGS.state_size, FLAGS.embedding_size)
-        q_o, h_q = encoder.encode(input=self.question_var, masks=?????, encoder_state_input=None)
-        p_o, h_p = encoder.encode(input=self.paragraph_var, masks=????, encoder_state_input=q_h, reuse=True)
+        q_o, h_q = self.encoder.encode(scope='q_enc', inputs=self.question_var, masks=self.question_masks, encoder_state_input=None)
+        p_o, h_p = self.encoder.encode(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, encoder_state_input=h_q, reuse=True)
 
-        decoder = Decoder(FLAGS.output_size)
-        self.a_s, self.a_e = decoder.decode(h_q, h_p)
+        self.a_s, self.a_e = self.decoder.decode(h_q, h_p)
 
 
     def setup_loss(self):
@@ -151,8 +155,8 @@ class QASystem(object):
         :return:
         """
         with vs.variable_scope("embeddings"):
-            glove_matrix = np.load(FLAGS.embed_path)['glove']
-            embeddings = tf.Constant(glove_matrix)
+            glove_matrix = np.load(self.embed_path)['glove']
+            embeddings = tf.constant(glove_matrix)
             self.paragraph_var = tf.nn.embedding_lookup(embeddings, self.paragraph)
             self.question_var = tf.nn.embedding_lookup(embeddings, self.question)
 
@@ -287,7 +291,7 @@ class QASystem(object):
 
         return f1, em
 
-    def train(self, session, dataset, train_dir):
+    def train(self, session, dataset_train, dataset_val, train_dir):
         """
         Implement main training loop
 
@@ -317,21 +321,6 @@ class QASystem(object):
         # so that you can use your trained model to make predictions, or
         # even continue training
 
-        def load_dataset(batchsize, *filenames):
-            files = [open(f) for f in filenames]
-            batch = []
-            for i in range(len(files[0])):
-                example = []
-                for f in files:
-                    int_list = [int(x) for x in f.readline().split()]
-                    example.append(int_list)
-                batch.append(example)
-
-                if len(batch) == batchsize:
-                    yield batch
-            if len(batch) > 0:
-                yield batch
-
         tic = time.time()
         params = tf.trainable_variables()
         num_params = sum(map(lambda t: np.prod(tf.shape(t.value()).eval()), params))
@@ -341,11 +330,16 @@ class QASystem(object):
         for e in range(FLAGS.epochs):
             for p, q, a in dataset:
                 # transfer a to be start_ans and end_ans
+                start_answer, end_answer = a
                 loss = self.optimize(session, p, q, start_answer, end_answer)
+
             ## save the model
             saver = tf.Saver()
+            saver.save(session, FLAGS.train_dir + '/model', global_step=e)
 
-            val_loss = self.validate(dataset_train)
+            val_loss = self.validate(dataset_val)
 
             f1_train, em_train = self.evaluate_answer(session, dataset_train, sample=100)
-            f1_val, em_val = self.evaluate_answer(session, dataset_test)
+            f1_val, em_val = self.evaluate_answer(session, dataset_val)
+            print('f1_train: {}, em_train: {}'.format(f1_train, em_train))
+            print('f1_val: {}, em_val: {}'.format(f1_val, em_val))
