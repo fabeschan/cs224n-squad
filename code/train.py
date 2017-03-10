@@ -12,12 +12,12 @@ from os.path import join as pjoin
 
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARN)
 
 tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("dropout", 0.15, "Fraction of units randomly dropped on non-recurrent connections.")
-tf.app.flags.DEFINE_integer("batch_size", 10, "Batch size to use during training.")
+tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 10, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("state_size", 200, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("output_size", 750, "The output size of your model.")
@@ -80,7 +80,7 @@ def get_normalized_train_dir(train_dir):
 def load_dataset(batchsize, *filenames):
     files = [open(f) for f in filenames]
     batch = []
-    for i in range(len(files[0])):
+    for i in range(4284): #TODO: ASDFGHJKFDSASDFGHJK
 	example = []
 	for f in files:
 	    int_list = [int(x) for x in f.readline().split()]
@@ -93,43 +93,26 @@ def load_dataset(batchsize, *filenames):
     if len(batch) > 0:
 	yield batch
 
-def load_padded_data(batch):
-    padded_batch = []
-    for paragraph, question, answer in batch:
-        #pad paragraph
-        _paragraph, mask_paragraph = padding(FLAGS.output_size, paragraph)
-        _question, mask_question = padding(FLAGS.question_size, question)
-        padded_batch.append(_paragraph, paragraph_mask, _question, question_mask, answer)
-    return padded_batch
-
-def padding(maxlength, vector):
-    original_length = len(vector)
-    gap = maxlength - original_length
-    if(gap > 0):
-        mask = [1]*original_length + [0]*gap
-        _vector = vector + gap*[0]
-    else:
-        mask = [True]*max_length
-        _vector = vector[:max_length]
-    return (_vector, mask)
-
 
 def main(_):
 
     # Do what you need to load datasets from FLAGS.data_dir
     dataset_train = load_dataset(
         FLAGS.batch_size,
-        FLAGS.data_dir+'squad/train.ids.context',
-        FLAGS.data_dir+'squad/train.ids.quesion',
-        FLAGS.data_dir+'squad/train.span'
+        FLAGS.data_dir+'/val.ids.context',
+        FLAGS.data_dir+'/val.ids.question',
+        FLAGS.data_dir+'/val.span'
+
     )
+
 
     dataset_val = load_dataset(
         FLAGS.batch_size,
-        FLAGS.data_dir+'squad/val.ids.context',
-        FLAGS.data_dir+'squad/val.ids.quesion',
-        FLAGS.data_dir+'squad/val.span'
+        FLAGS.data_dir+'/val.ids.context',
+        FLAGS.data_dir+'/val.ids.question',
+        FLAGS.data_dir+'/val.span'
     )
+
 
     embed_path = FLAGS.embed_path or pjoin("data", "squad", "glove.trimmed.{}.npz".format(FLAGS.embedding_size))
     vocab_path = FLAGS.vocab_path or pjoin(FLAGS.data_dir, "vocab.dat")
