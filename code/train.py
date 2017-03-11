@@ -78,20 +78,22 @@ def get_normalized_train_dir(train_dir):
     return global_train_dir
 
 def load_dataset(batchsize, *filenames):
-    files = [open(f) for f in filenames]
-    batch = []
-    for i in range(4284): #TODO: ASDFGHJKFDSASDFGHJK
-    	example = []
-    	for f in files:
-    	    int_list = [int(x) for x in f.readline().split()]
-    	    example.append(int_list)
-    	batch.append(example)
+    def generate_batch():
+        files = [open(f) for f in filenames]
+        batch = []
+        for i in range(4284): #TODO: ASDFGHJKFDSASDFGHJK
+            example = []
+            for f in files:
+                int_list = [int(x) for x in f.readline().split()]
+                example.append(int_list)
+            batch.append(example)
 
-    	if len(batch) == batchsize:
-    	    yield batch
-            batch = []
-    if len(batch) > 0:
-	yield batch
+            if len(batch) == batchsize:
+                yield batch
+                batch = []
+        if len(batch) > 0:
+            yield batch
+    return generate_batch
 
 def load_dataset_val(*filenames):
     files = [open(f) for f in filenames]
@@ -114,7 +116,6 @@ def main(_):
         FLAGS.data_dir+'/val.ids.context',
         FLAGS.data_dir+'/val.ids.question',
         FLAGS.data_dir+'/val.span'
-
     )
 
 
