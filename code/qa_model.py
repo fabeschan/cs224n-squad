@@ -358,6 +358,7 @@ class QASystem(object):
         num_params = sum(map(lambda t: np.prod(tf.shape(t.value()).eval()), params))
         toc = time.time()
         logging.info("Number of params: %d (retreival took %f secs)" % (num_params, toc - tic))
+        writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', session.graph)
 
         for e in range(FLAGS.epochs):
             print("Epoch {}".format(e))
@@ -378,9 +379,9 @@ class QASystem(object):
             #saver = tf.train.Saver()
             #saver.save(session, FLAGS.train_dir + '/model', global_step=e)
 
-            val_loss = self.validate(session, dataset_val)
+            #val_loss = self.validate(session, dataset_val)
 
             #f1_train, em_train = self.evaluate_answer(session, dataset_train, sample=100)
-            f1_val, em_val = self.evaluate_answer(session, dataset_val)
+            #f1_val, em_val = self.evaluate_answer(session, dataset_val)
             #print('f1_train: {}, em_train: {}'.format(f1_train, em_train))
-            print('f1_val: {}, em_val: {}'.format(f1_val, em_val))
+            #print('f1_val: {}, em_val: {}'.format(f1_val, em_val))
