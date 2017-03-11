@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.WARN)
 tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("dropout", 0.15, "Fraction of units randomly dropped on non-recurrent connections.")
-tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during training.")
+tf.app.flags.DEFINE_integer("batch_size", 200, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 10, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("state_size", 200, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("output_size", 750, "The output size of your model.")
@@ -77,8 +77,8 @@ def get_normalized_train_dir(train_dir):
     os.symlink(os.path.abspath(train_dir), global_train_dir)
     return global_train_dir
 
-def load_dataset(batchsize, *filenames):
-    def generate_batch():
+def load_dataset(*filenames):
+    def generate_batch(batchsize):
         files = [open(f) for f in filenames]
         batch = []
         for i in range(4284): #TODO: ASDFGHJKFDSASDFGHJK
@@ -90,6 +90,7 @@ def load_dataset(batchsize, *filenames):
             if batchsize != -1:
                 if len(batch) == batchsize:
                     yield batch
+                    #return # for speed
                     batch = []
         if len(batch) > 0:
             yield batch
@@ -112,7 +113,6 @@ def main(_):
 
     # Do what you need to load datasets from FLAGS.data_dir
     dataset_train = load_dataset(
-        FLAGS.batch_size,
         FLAGS.data_dir+'/val.ids.context',
         FLAGS.data_dir+'/val.ids.question',
         FLAGS.data_dir+'/val.span'
@@ -120,7 +120,6 @@ def main(_):
 
 
     dataset_val = load_dataset(
-        -1,
         FLAGS.data_dir+'/val.ids.context',
         FLAGS.data_dir+'/val.ids.question',
         FLAGS.data_dir+'/val.span'
@@ -134,7 +133,7 @@ def main(_):
     encoder = Encoder(size=FLAGS.state_size, vocab_dim=FLAGS.embedding_size)
     decoder = Decoder(output_size=FLAGS.output_size)
 
-    qa = QASystem(encoder, decoder, embed_path)
+    qa = QASystem(encoder, decoder, embed_path, vocab, rev_vocab)
 
     if not os.path.exists(FLAGS.log_dir):
         os.makedirs(FLAGS.log_dir)

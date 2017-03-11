@@ -115,7 +115,7 @@ def padding(maxlength, vector):
 #     return result
 
 class QASystem(object):
-    def __init__(self, encoder, decoder, embed_path, *args):
+    def __init__(self, encoder, decoder, embed_path, vocab, rev_vocab, *args):
         """
         Initializes your System
 
@@ -126,6 +126,7 @@ class QASystem(object):
 
         self.embed_path = embed_path
         self.encoder, self.decoder = encoder, decoder
+        self.vocab, self.rev_vocab = vocab, rev_vocab
 
         # ==== set up placeholder tokens ========
         self.question = tf.placeholder(shape=[None, FLAGS.question_size], dtype=tf.int32)
@@ -140,7 +141,7 @@ class QASystem(object):
             self.setup_embeddings()
             self.setup_system()
             self.setup_loss()
-
+        self.saver = tf.train.Saver()
         # ==== set up training/updating procedure ====
         params = tf.trainable_variables()
         #grads = tf.gradient(self.loss, params)
@@ -278,23 +279,23 @@ class QASystem(object):
 
         :return:
         """
-        valid_cost = 0
-        for batch in valid_dataset():
+        valid_cost = []
+        count = 0
+        for batch in valid_dataset(FLAGS.batch_size):
+            count += 1
             p, q, a = zip(*batch)
             start_answer, end_answer = zip(*a)
             # start_answer = one_hot(start_answer, FLAGS.output_size)
             # end_answer = one_hot(end_answer, FLAGS.output_size)
-            print("start_answer[0]",start_answer[0])
             ### TODO: check the validation output sie and questio_size
             p_pad_mask = padding_batch(p,FLAGS.output_size)
             q_pad_mask = padding_batch(q,FLAGS.question_size)
             p_pad, paragraph_masks = zip(*p_pad_mask)
             q_pad, question_masks = zip(*q_pad_mask)
-            print("q_pad",q_pad[0])
-            valid_cost = self.test(sess, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
-        print ("loss",valid_cost)
+            valid_cost += self.test(sess, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
+        mean_cost = sum(valid_cost) / count
 
-        return valid_cost
+        return mean_cost
 
     def evaluate_answer(self, session, dataset, sample=None, log=False):
         """
@@ -315,24 +316,29 @@ class QASystem(object):
         f1_values = 0.0
         em_values = 0.0
 
-        if sample:
-            sample_indices = random.sample(len(dataset), k=sample)
-            dataset = dataset[sample_indices]
-        print ("choosing sample done")
-        for batch in dataset_train():
-            for p, q, ground_truth in zip(*batch):
+        for batch in dataset(-1):
+
+            if sample:
+                sample_indices = random.sample(range(4284), k=sample)
+                data = [batch[i] for i in sample_indices]
+
+            for example in data:
+                p, q, ground_truth = example
                 p_pad_mask = padding(FLAGS.output_size, p)
                 q_pad_mask = padding(FLAGS.question_size, q)
                 p_pad, paragraph_masks = p_pad_mask
                 q_pad, question_masks = q_pad_mask
-                a_s, a_e = self.answer(session, p_pad, q_pad, paragraph_masks, question_masks)
-            prediction = paragraph[a_s: a_e + 1]
-            truth = paragraph[ground_truth[0]: ground_truth[1] + 1]
-            f1_values += 1.0 / f1_score(prediction, truth)
-            em_values += 1.0 / exact_match_score(prediction, ground_truth)
+                a_s, a_e = self.answer(session, [p_pad], [q_pad], [paragraph_masks], [question_masks])
+                prediction = p_pad[a_s: a_e + 1]
+                pred_words = " ".join([self.rev_vocab[i] for i in prediction])
+                truth = p_pad[ground_truth[0]: ground_truth[1] + 1]
+                truth_words = " ".join([self.rev_vocab[i] for i in truth])
+                f1_values += f1_score(pred_words, truth_words)
+                #print (f1_values)
+                em_values += exact_match_score(pred_words, truth_words)
 
-        f1 = sample / f1_values
-        em = sample / em_values
+        f1 = f1_values/sample
+        em = em_values/sample
         print ("compute f1 done")
         if log:
             logging.info("F1: {}, EM: {}, for {} samples".format(f1, em, sample))
@@ -378,7 +384,7 @@ class QASystem(object):
 
         for e in range(FLAGS.epochs):
             print("Epoch {}".format(e))
-            for batch in dataset_train():
+            for batch in dataset_train(FLAGS.batch_size):
                 if not batch:
                     break
                 p, q, a = zip(*batch)
@@ -395,12 +401,13 @@ class QASystem(object):
                 print("loss: {}".format(loss))
 
             ## save the model
-            #saver = tf.train.Saver()
-            #saver.save(session, FLAGS.train_dir + '/model', global_step=e)
+           # saver = tf.train.Saver()
+            self.saver.save(session, FLAGS.train_dir + '/model', global_step=e)
 
-            #val_loss = self.validate(session, dataset_val)
+            val_loss = self.validate(session, dataset_val)
 
             #f1_train, em_train = self.evaluate_answer(session, dataset_train, sample=100)
-            #f1_val, em_val = self.evaluate_answer(session, dataset_val)
+            f1_val, em_val = self.evaluate_answer(session, dataset_val, sample = 100)
             #print('f1_train: {}, em_train: {}'.format(f1_train, em_train))
-            #print('f1_val: {}, em_val: {}'.format(f1_val, em_val))
+            print('f1_val: {}, em_val: {}'.format(f1_val, em_val))
+
