@@ -85,6 +85,7 @@ class Decoder(object):
             a_s = tf.nn.rnn_cell._linear([h_q, h_p], FLAGS.output_size, True)
         with vs.variable_scope("answer_end"):
             a_e = tf.nn.rnn_cell._linear([h_q, h_p], FLAGS.output_size, True)
+        print (a_e)
 
 
         return a_s, a_e
@@ -164,8 +165,8 @@ class QASystem(object):
         """
 
         with vs.variable_scope("loss"):
-            l1 = tf.reduce_sum(tf.nn.sparse_softmax_cross_entropy_with_logits(self.a_s, self.start_answer))
-            l2 = tf.reduce_sum(tf.nn.sparse_softmax_cross_entropy_with_logits(self.a_e, self.end_answer))
+            l1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(self.a_s, self.start_answer))
+            l2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(self.a_e, self.end_answer))
             self.loss = l1 + l2
 
     def setup_embeddings(self):
@@ -234,7 +235,7 @@ class QASystem(object):
         :return:
         """
         input_feed = {
-            self.paragraph: parapraph,
+            self.paragraph: paragraph,
             self.question: question
         }
 
@@ -271,12 +272,15 @@ class QASystem(object):
         valid_cost = 0
         p, q, a = zip(*valid_dataset)
         start_answer, end_answer = zip(*a)
+        print("start_answer[0]",start_answer[0])
         ### TODO: check the validation output sie and questio_size
         p_pad_mask = padding_batch(p,FLAGS.output_size)
         q_pad_mask = padding_batch(q,FLAGS.question_size)
         p_pad, paragraph_masks = zip(*p_pad_mask)
         q_pad, question_masks = zip(*q_pad_mask)
+        print("q_pad",q_pad[0])
         valid_cost = self.test(sess, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
+        print ("loss",valid_cost)
 
         return valid_cost
 
@@ -302,7 +306,7 @@ class QASystem(object):
         if sample:
             sample_indices = random.sample(len(dataset), k=sample)
             dataset = dataset[sample_indices]
-
+        print ("choosing sample done")
         for p, q, ground_truth in dataset:
             a_s, a_e = self.answer(session, p, q)
             prediction = paragraph[a_s: a_e+1]
@@ -311,7 +315,7 @@ class QASystem(object):
 
         f1 = sample / f1_values
         em = sample / em_values
-
+        print ("compute f1 done")
         if log:
             logging.info("F1: {}, EM: {}, for {} samples".format(f1, em, sample))
 
@@ -371,9 +375,9 @@ class QASystem(object):
             #saver = tf.train.Saver()
             #saver.save(session, FLAGS.train_dir + '/model', global_step=e)
 
-            val_loss = self.validate(dataset_val)
+            val_loss = self.validate(session, dataset_val)
 
             #f1_train, em_train = self.evaluate_answer(session, dataset_train, sample=100)
-            #f1_val, em_val = self.evaluate_answer(session, dataset_val)
+            f1_val, em_val = self.evaluate_answer(session, dataset_val)
             #print('f1_train: {}, em_train: {}'.format(f1_train, em_train))
-            #print('f1_val: {}, em_val: {}'.format(f1_val, em_val))
+            print('f1_val: {}, em_val: {}'.format(f1_val, em_val))
