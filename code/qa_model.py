@@ -165,8 +165,8 @@ class QASystem(object):
         """
 
         with vs.variable_scope("loss"):
-            l1 = tf.reduce_sum(tf.nn.sparse_softmax_cross_entropy_with_logits(self.a_s, self.start_answer))
-            l2 = tf.reduce_sum(tf.nn.sparse_softmax_cross_entropy_with_logits(self.a_e, self.end_answer))
+            l1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(self.a_s, self.start_answer))
+            l2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(self.a_e, self.end_answer))
             self.loss_s = l1
             self.loss_e = l2
             self.loss = l1 + l2
@@ -201,7 +201,7 @@ class QASystem(object):
         # fill in this feed_dictionary like:
         # input_feed['train_x'] = train_x
 
-        output_feed = [self.loss, self.loss_s, self.loss_e]
+        output_feed = [self.updates, self.loss, self.loss_s, self.loss_e]
 
         outputs = session.run(output_feed, input_feed)
         return outputs
