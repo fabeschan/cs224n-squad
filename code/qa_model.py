@@ -85,9 +85,6 @@ class Decoder(object):
             a_s = tf.nn.rnn_cell._linear([h_q, h_p], FLAGS.output_size, True)
         with vs.variable_scope("answer_end"):
             a_e = tf.nn.rnn_cell._linear([h_q, h_p], FLAGS.output_size, True)
-        print (a_e)
-
-
         return a_s, a_e
 
 def padding_batch(batch, pad_size):
@@ -108,6 +105,14 @@ def padding(maxlength, vector):
         mask = [True]*max_length
         _vector = vector[:max_length]
     return (_vector, mask)
+
+# def one_hot(examples, size):
+#     result = []
+#     for i in examples:
+#         temp = [0] * size
+#         temp[i] = 1
+#         result.append(temp)
+#     return result
 
 class QASystem(object):
     def __init__(self, encoder, decoder, embed_path, *args):
@@ -230,7 +235,7 @@ class QASystem(object):
 
         return outputs
 
-    def decode(self, session, paragraph, question):
+    def decode(self, session, paragraph, question, paragraph_masks, question_masks):
         """
         Returns the probability distribution over different positions in the paragraph
         so that other methods like self.answer() will be able to work properly
@@ -238,7 +243,9 @@ class QASystem(object):
         """
         input_feed = {
             self.paragraph: paragraph,
-            self.question: question
+            self.question: question,
+            self.paragraph_masks: paragraph_masks,
+            self.question_masks: question_masks
         }
 
         # fill in this feed_dictionary like:
@@ -250,9 +257,9 @@ class QASystem(object):
 
         return outputs
 
-    def answer(self, session, paragraph, question):
+    def answer(self, session, paragraph, question, paragraph_masks, question_masks):
 
-        yp, yp2 = self.decode(session, paragraph, question)
+        yp, yp2 = self.decode(session, paragraph, question, paragraph_masks, question_masks)
 
         a_s = np.argmax(yp, axis=1)
         a_e = np.argmax(yp2, axis=1)
@@ -272,16 +279,19 @@ class QASystem(object):
         :return:
         """
         valid_cost = 0
-        p, q, a = zip(*valid_dataset)
-        start_answer, end_answer = zip(*a)
-        print("start_answer[0]",start_answer[0])
-        ### TODO: check the validation output sie and questio_size
-        p_pad_mask = padding_batch(p,FLAGS.output_size)
-        q_pad_mask = padding_batch(q,FLAGS.question_size)
-        p_pad, paragraph_masks = zip(*p_pad_mask)
-        q_pad, question_masks = zip(*q_pad_mask)
-        print("q_pad",q_pad[0])
-        valid_cost = self.test(sess, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
+        for batch in valid_dataset():
+            p, q, a = zip(*batch)
+            start_answer, end_answer = zip(*a)
+            # start_answer = one_hot(start_answer, FLAGS.output_size)
+            # end_answer = one_hot(end_answer, FLAGS.output_size)
+            print("start_answer[0]",start_answer[0])
+            ### TODO: check the validation output sie and questio_size
+            p_pad_mask = padding_batch(p,FLAGS.output_size)
+            q_pad_mask = padding_batch(q,FLAGS.question_size)
+            p_pad, paragraph_masks = zip(*p_pad_mask)
+            q_pad, question_masks = zip(*q_pad_mask)
+            print("q_pad",q_pad[0])
+            valid_cost = self.test(sess, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
         print ("loss",valid_cost)
 
         return valid_cost
@@ -309,10 +319,16 @@ class QASystem(object):
             sample_indices = random.sample(len(dataset), k=sample)
             dataset = dataset[sample_indices]
         print ("choosing sample done")
-        for p, q, ground_truth in dataset:
-            a_s, a_e = self.answer(session, p, q)
-            prediction = paragraph[a_s: a_e+1]
-            f1_values += 1.0 / f1_score(prediction, ground_truth)
+        for batch in dataset_train():
+            for p, q, ground_truth in zip(*batch):
+                p_pad_mask = padding(FLAGS.output_size, p)
+                q_pad_mask = padding(FLAGS.question_size, q)
+                p_pad, paragraph_masks = p_pad_mask
+                q_pad, question_masks = q_pad_mask
+                a_s, a_e = self.answer(session, p_pad, q_pad, paragraph_masks, question_masks)
+            prediction = paragraph[a_s: a_e + 1]
+            truth = paragraph[ground_truth[0]: ground_truth[1] + 1]
+            f1_values += 1.0 / f1_score(prediction, truth)
             em_values += 1.0 / exact_match_score(prediction, ground_truth)
 
         f1 = sample / f1_values
@@ -367,10 +383,13 @@ class QASystem(object):
                 p, q, a = zip(*batch)
                 # transfer a to be start_ans and end_ans
                 start_answer, end_answer = zip(*a)
+                #start_answer = one_hot(start_answer, FLAGS.output_size)
+                #end_answer = one_hot(end_answer, FLAGS.output_size)
                 p_pad_mask = padding_batch(p,FLAGS.output_size)
                 q_pad_mask = padding_batch(q,FLAGS.question_size)
                 p_pad, paragraph_masks = zip(*p_pad_mask)
                 q_pad, question_masks = zip(*q_pad_mask)
+
                 loss = self.optimize(session, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
                 print("loss: {}".format(loss))
 
