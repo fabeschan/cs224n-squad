@@ -78,10 +78,11 @@ def get_normalized_train_dir(train_dir):
     return global_train_dir
 
 def load_dataset(*filenames):
+    num_lines = sum(1 for line in open(filenames[-1]))
     def generate_batch(batchsize):
         files = [open(f) for f in filenames]
         batch = []
-        for i in range(4284): #TODO: ASDFGHJKFDSASDFGHJK
+        for i in range(num_lines): #TODO: ASDFGHJKFDSASDFGHJK
             example = []
             for f in files:
                 int_list = [int(x) for x in f.readline().split()]
@@ -89,25 +90,12 @@ def load_dataset(*filenames):
             batch.append(example)
             if batchsize != -1:
                 if len(batch) == batchsize:
-                    yield batch
+                    yield batch, num_lines
                     #return # for speed
                     batch = []
         if len(batch) > 0:
-            yield batch
+            yield batch, num_lines
     return generate_batch
-
-# def load_dataset_val(*filenames):
-#     files = [open(f) for f in filenames]
-#     result = []
-#     for i in range(4284):
-#         example = []
-#         for f in files:
-#             int_list = [int(x) for x in f.readline().split()]
-#             example.append(int_list)
-#         result.append(example)
-#     return result
-
-
 
 def main(_):
 
@@ -151,7 +139,7 @@ def main(_):
         save_train_dir = get_normalized_train_dir(FLAGS.train_dir)
         qa.train(sess, dataset_train, dataset_val, save_train_dir)
 
-        qa.evaluate_answer(sess, dataset, vocab, FLAGS.evaluate, log=True)
+        qa.evaluate_answer(sess, dataset_val, vocab, FLAGS.evaluate, log=True)
 
 if __name__ == "__main__":
     tf.app.run()

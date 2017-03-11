@@ -281,7 +281,7 @@ class QASystem(object):
         """
         valid_cost = []
         count = 0
-        for batch in valid_dataset(FLAGS.batch_size):
+        for batch, num_lines_total in valid_dataset(FLAGS.batch_size):
             count += 1
             p, q, a = zip(*batch)
             start_answer, end_answer = zip(*a)
@@ -316,10 +316,10 @@ class QASystem(object):
         f1_values = 0.0
         em_values = 0.0
 
-        for batch in dataset(-1):
+        for batch, num_lines_total in dataset(-1):
 
             if sample:
-                sample_indices = random.sample(range(4284), k=sample)
+                sample_indices = random.sample(range(num_lines_total), k=sample)
                 data = [batch[i] for i in sample_indices]
 
             for example in data:
@@ -384,7 +384,7 @@ class QASystem(object):
 
         for e in range(FLAGS.epochs):
             print("Epoch {}".format(e))
-            for batch in dataset_train(FLAGS.batch_size):
+            for batch, num_lines_total in dataset_train(FLAGS.batch_size):
                 if not batch:
                     break
                 p, q, a = zip(*batch)
