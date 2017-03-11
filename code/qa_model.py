@@ -102,8 +102,8 @@ def padding(maxlength, vector):
         mask = [1]*original_length + [0]*gap
         _vector = vector + gap*[0]
     else:
-        mask = [True]*max_length
-        _vector = vector[:max_length]
+        mask = [True]*maxlength
+        _vector = vector[:maxlength]
     return (_vector, mask)
 
 # def one_hot(examples, size):
@@ -406,8 +406,8 @@ class QASystem(object):
 
             val_loss = self.validate(session, dataset_val)
 
-            #f1_train, em_train = self.evaluate_answer(session, dataset_train, sample=100)
+            f1_train, em_train = self.evaluate_answer(session, dataset_train, sample=100)
             f1_val, em_val = self.evaluate_answer(session, dataset_val, sample = 100)
-            #print('f1_train: {}, em_train: {}'.format(f1_train, em_train))
+            print('f1_train: {}, em_train: {}'.format(f1_train, em_train))
             print('f1_val: {}, em_val: {}'.format(f1_val, em_val))
 

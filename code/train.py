@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.WARN)
 tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("dropout", 0.15, "Fraction of units randomly dropped on non-recurrent connections.")
-tf.app.flags.DEFINE_integer("batch_size", 200, "Batch size to use during training.")
+tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 10, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("state_size", 200, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("output_size", 750, "The output size of your model.")
@@ -101,9 +101,9 @@ def main(_):
 
     # Do what you need to load datasets from FLAGS.data_dir
     dataset_train = load_dataset(
-        FLAGS.data_dir+'/val.ids.context',
-        FLAGS.data_dir+'/val.ids.question',
-        FLAGS.data_dir+'/val.span'
+        FLAGS.data_dir+'/train.ids.context',
+        FLAGS.data_dir+'/train.ids.question',
+        FLAGS.data_dir+'/train.span'
     )
 
 
@@ -139,7 +139,7 @@ def main(_):
         save_train_dir = get_normalized_train_dir(FLAGS.train_dir)
         qa.train(sess, dataset_train, dataset_val, save_train_dir)
 
-        qa.evaluate_answer(sess, dataset_val, vocab, FLAGS.evaluate, log=True)
+       # qa.evaluate_answer(sess, dataset_val, vocab, FLAGS.evaluate, log=True)
 
 if __name__ == "__main__":
     tf.app.run()
