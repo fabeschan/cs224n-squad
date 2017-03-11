@@ -81,17 +81,29 @@ def load_dataset(batchsize, *filenames):
     files = [open(f) for f in filenames]
     batch = []
     for i in range(4284): #TODO: ASDFGHJKFDSASDFGHJK
-	example = []
-	for f in files:
-	    int_list = [int(x) for x in f.readline().split()]
-	    example.append(int_list)
-	batch.append(example)
+    	example = []
+    	for f in files:
+    	    int_list = [int(x) for x in f.readline().split()]
+    	    example.append(int_list)
+    	batch.append(example)
 
-	if len(batch) == batchsize:
-	    yield batch
+    	if len(batch) == batchsize:
+    	    yield batch
             batch = []
     if len(batch) > 0:
 	yield batch
+
+def load_dataset_val(*filenames):
+    files = [open(f) for f in filenames]
+    result = []
+    for i in range(4284):
+        example = []
+        for f in files:
+            int_list = [int(x) for x in f.readline().split()]
+            example.append(int_list)
+        result.append(example)
+    return result
+
 
 
 def main(_):
@@ -106,8 +118,7 @@ def main(_):
     )
 
 
-    dataset_val = load_dataset(
-        FLAGS.batch_size,
+    dataset_val = load_dataset_val(
         FLAGS.data_dir+'/val.ids.context',
         FLAGS.data_dir+'/val.ids.question',
         FLAGS.data_dir+'/val.span'
