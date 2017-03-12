@@ -188,8 +188,9 @@ class QASystem(object):
         optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate)
         print("grad_clip:",FLAGS.grad_clip)
         if FLAGS.grad_clip:
-            clipped_grad, self.norm = tf.clip_by_global_norm(grads, FLAGS.max_grad_norm)
-            optimizer.apply_gradients(zip(clipped_grad, params))
+            clipped_grad, self.norm = tf.clip_by_global_norm(grads, FLAGS.max_gradient_norm)
+            tf.summary.scalar('norm', self.norm)
+            optimizer = optimizer.apply_gradients(zip(clipped_grad, params))
         self.updates = optimizer.minimize(self.loss)
 
         self.saver = tf.train.Saver()
