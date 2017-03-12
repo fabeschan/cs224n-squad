@@ -34,6 +34,8 @@ tf.app.flags.DEFINE_string("embed_path", "", "Path to the trimmed GLoVe embeddin
 
 #add max length of question
 tf.app.flags.DEFINE_integer("question_size", 60, "max size of question")
+tf.app.flags.DEFINE_float("max_grad_norm", 5.0, "clip for the grad")
+tf.app.flags.DEFINE_integer("grad_clip", 1, "bool for grad clip")
 FLAGS = tf.app.flags.FLAGS
 
 
