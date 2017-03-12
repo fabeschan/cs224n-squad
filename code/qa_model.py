@@ -27,6 +27,27 @@ def get_optimizer(opt):
     return optfn
 
 #
+class GRUattncell(rnn_cell.GRUCell):
+    def __init__(self, num_units, encoder_output, scope=None):
+        self.hs = encoder_output
+        super(GRUattncell, self).__init__(num_units)
+
+    def __call__(self, inputs, state, scope=None):
+        # for Gru, out and state are the same
+        gru_out, gru_state = super(GRUattncell, self).__call__(inputs, state, scope)
+        with vs.variable_scope(scope or type(self). __name__):
+            with vs.variable_scope("attn"):
+                ht = tf.nn.rnn_cell._linear(gru_out, self.num_units, True, 1.0)
+                # after expand_dims shape = [num_units, 1]
+                # hs = [num_units, num_sources]
+                ht = tf.expand_dims(ht, axis=1)
+            # scores list length: num_sources
+            scores = tf.reduce_sum(self.hs * ht, axis=0, keep_dims=True)
+            context = tf.reduce_sum(self.hs * scores, axis=1)
+            with vs.variable_scope("AttnConcat"):
+                out = tf.nn.relu(tf.nn.rnn_cell._linear([context, gru_out], self.num_units, True, 1.0))
+        return (out, out)
+
 class Encoder(object):
     def __init__(self, size, vocab_dim):
         # size = hidden size?
@@ -50,20 +71,34 @@ class Encoder(object):
                  It can be context-level representation, word-level representation,
                  or both.
         """
+        with vs.variable_scope(scope, reuse):
 
-        seqlen = tf.reduce_sum(masks, axis=1) # TODO: choose correct axis!
-        # (fw_o, bw_o), _ = birectional_dynamic_rnn(self.cell, inputs, srclen=srclen, intial_state=None)
+            seqlen = tf.reduce_sum(masks, axis=1) # TODO: choose correct axis!
+            # (fw_o, bw_o), _ = birectional_dynamic_rnn(self.cell, inputs, srclen=srclen, intial_state=None)
 
-        outputs, state = tf.nn.dynamic_rnn(
-            self.cell,
-            inputs,
-            sequence_length=seqlen,
-            initial_state=encoder_state_input,
-            dtype=tf.float64,
-            scope=scope
-        )
+            outputs, state = tf.nn.dynamic_rnn(
+                self.cell,
+                inputs,
+                sequence_length=seqlen,
+                initial_state=encoder_state_input,
+                dtype=tf.float64,
+                scope=scope
+            )
         return outputs, state #TODO: ????
 
+    def encode_with_attn(self, inputs, masks, prev_states, scope="", reuse=False):
+        self.att_gru_cell = GRUattncell(self.size, prev_states)
+        with vs.variable_scope(scope, reuse):
+            seqlen = tf.reduce_sum(masks, axis=1)
+            outputs, state = tf.nn.dynamic_rnn(
+                self.att_cell, 
+                inputs, 
+                sequence_length=seqlen, 
+                initial_state=None,
+                dtype=tf.float64,
+                scope=scope
+            )
+        return outputs, state
 
 class Decoder(object):
     def __init__(self, output_size):
@@ -159,7 +194,8 @@ class QASystem(object):
         :return:
         """
         q_o, h_q = self.encoder.encode(scope='q_enc', inputs=self.question_var, masks=self.question_masks, encoder_state_input=None)
-        p_o, h_p = self.encoder.encode(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, encoder_state_input=h_q, reuse=True)
+        q_o, h_p = self.encoder.encode_with_attn(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, prev_states=q_o, reuse=False)
+        #p_o, h_p = self.encoder.encode(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, encoder_state_input=h_q, reuse=True)
 
         self.a_s, self.a_e = self.decoder.decode(h_q[0], h_p[0]) #need double check
 
