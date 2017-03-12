@@ -176,6 +176,9 @@ class QASystem(object):
             self.setup_embeddings()
             self.setup_system()
             self.setup_loss()
+
+        merged = tf.summary.merge_all()
+        self.writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', session.graph)
         self.saver = tf.train.Saver()
         # ==== set up training/updating procedure ====
         params = tf.trainable_variables()
@@ -212,6 +215,9 @@ class QASystem(object):
             self.loss_s = l1
             self.loss_e = l2
             self.loss = l1 + l2
+            tf.summary.scalar('loss', self.loss)
+            tf.summary.scalar('loss_s', self.loss_s)
+            tf.summary.scalar('loss_e', self.loss_e)
 
     def setup_embeddings(self):
         """
@@ -238,13 +244,7 @@ class QASystem(object):
             self.paragraph_masks: paragraph_masks,
             self.question_masks: question_masks
         }
-
-
-        # fill in this feed_dictionary like:
-        # input_feed['train_x'] = train_x
-
-        output_feed = [self.updates, self.loss, self.loss_s, self.loss_e]
-
+        output_feed = [self.merged, self.updates, self.loss, self.loss_s, self.loss_e]
         outputs = session.run(output_feed, input_feed)
         return outputs
 
@@ -262,14 +262,8 @@ class QASystem(object):
             self.paragraph_masks: paragraph_masks,
             self.question_masks: question_masks
         }
-
-        # fill in this feed_dictionary like:
-        # input_feed['valid_x'] = valid_x
-
         output_feed = [self.loss]
-
         outputs = session.run(output_feed, input_feed)
-
         return outputs
 
     def decode(self, session, paragraph, question, paragraph_masks, question_masks):
@@ -284,23 +278,14 @@ class QASystem(object):
             self.paragraph_masks: paragraph_masks,
             self.question_masks: question_masks
         }
-
-        # fill in this feed_dictionary like:
-        # input_feed['test_x'] = test_x
-
         output_feed = [self.a_s, self.a_e]
-
         outputs = session.run(output_feed, input_feed)
-
         return outputs
 
     def answer(self, session, paragraph, question, paragraph_masks, question_masks):
-
         yp, yp2 = self.decode(session, paragraph, question, paragraph_masks, question_masks)
-
         a_s = np.argmax(yp, axis=1)
         a_e = np.argmax(yp2, axis=1)
-
         return (a_s, a_e)
 
     def validate(self, sess, valid_dataset):
@@ -330,7 +315,6 @@ class QASystem(object):
             q_pad, question_masks = zip(*q_pad_mask)
             valid_cost += self.test(sess, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
         mean_cost = sum(valid_cost) / count
-
         return mean_cost
 
     def evaluate_answer(self, session, dataset, sample=None, log=False):
@@ -365,17 +349,17 @@ class QASystem(object):
                 p_pad, paragraph_masks = p_pad_mask
                 q_pad, question_masks = q_pad_mask
                 a_s, a_e = self.answer(session, [p_pad], [q_pad], [paragraph_masks], [question_masks])
+
                 prediction = p_pad[a_s: a_e + 1]
                 pred_words = " ".join([self.rev_vocab[i] for i in prediction])
                 truth = p_pad[ground_truth[0]: ground_truth[1] + 1]
                 truth_words = " ".join([self.rev_vocab[i] for i in truth])
+
                 f1_values += f1_score(pred_words, truth_words)
-                #print (f1_values)
                 em_values += exact_match_score(pred_words, truth_words)
 
         f1 = f1_values/sample
         em = em_values/sample
-        print ("compute f1 done")
         if log:
             logging.info("F1: {}, EM: {}, for {} samples".format(f1, em, sample))
 
@@ -416,8 +400,8 @@ class QASystem(object):
         num_params = sum(map(lambda t: np.prod(tf.shape(t.value()).eval()), params))
         toc = time.time()
         logging.info("Number of params: %d (retreival took %f secs)" % (num_params, toc - tic))
-        writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', session.graph)
 
+        i = 0
         for e in range(FLAGS.epochs):
             print("Epoch {}".format(e))
             for batch, num_lines_total in dataset_train(FLAGS.batch_size):
@@ -433,17 +417,20 @@ class QASystem(object):
                 p_pad, paragraph_masks = zip(*p_pad_mask)
                 q_pad, question_masks = zip(*q_pad_mask)
 
-                loss = self.optimize(session, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
+                summary, opt, *loss = self.optimize(session, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
+                self.writer.add_summary(summary, i)
                 print("loss: {}".format(loss))
+                i += 1
 
             ## save the model
-           # saver = tf.train.Saver()
+            #saver = tf.train.Saver()
             self.saver.save(session, FLAGS.train_dir + '/model', global_step=e)
 
             val_loss = self.validate(session, dataset_val)
 
             f1_train, em_train = self.evaluate_answer(session, dataset_train, sample=100)
-            f1_val, em_val = self.evaluate_answer(session, dataset_val, sample = 100)
             print('f1_train: {}, em_train: {}'.format(f1_train, em_train))
+
+            f1_val, em_val = self.evaluate_answer(session, dataset_val, sample=100)
             print('f1_val: {}, em_val: {}'.format(f1_val, em_val))
 
