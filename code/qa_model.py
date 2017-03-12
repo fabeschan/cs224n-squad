@@ -14,7 +14,7 @@ from tensorflow.python.ops import variable_scope as vs
 from evaluate import exact_match_score, f1_score
 FLAGS = tf.app.flags.FLAGS
 #
-logging.basicConfig(level=logging.WARN)
+logging.basicConfig(level=logging.INFO)
 
 
 def get_optimizer(opt):
@@ -141,13 +141,18 @@ class QASystem(object):
             self.setup_embeddings()
             self.setup_system()
             self.setup_loss()
-        self.saver = tf.train.Saver()
+
+        ##add ops to initialize the varialble
+        #self.saver = tf.train.Saver()
         # ==== set up training/updating procedure ====
         params = tf.trainable_variables()
         #grads = tf.gradient(self.loss, params)
 
         # "adam" or "sgd"
         self.updates = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate).minimize(self.loss)
+
+        self.saver = tf.train.Saver()
+
         vocab_path = FLAGS.vocab_path or pjoin(FLAGS.data_dir, "vocab.dat")
         #self.vocab, self.rev_vocab = initialize_vocab(FLAGS.vocab_path)
 
@@ -209,6 +214,7 @@ class QASystem(object):
 
         output_feed = [self.updates, self.loss, self.loss_s, self.loss_e]
 
+        #session.run(tf.global_variables_initializer())
         outputs = session.run(output_feed, input_feed)
         return outputs
 
@@ -410,4 +416,6 @@ class QASystem(object):
             f1_val, em_val = self.evaluate_answer(session, dataset_val, sample = 100)
             print('f1_train: {}, em_train: {}'.format(f1_train, em_train))
             print('f1_val: {}, em_val: {}'.format(f1_val, em_val))
+
+
 

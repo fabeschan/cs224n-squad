@@ -12,7 +12,7 @@ from os.path import join as pjoin
 
 import logging
 
-logging.basicConfig(level=logging.WARN)
+logging.basicConfig(level=logging.INFO)
 
 tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
@@ -74,6 +74,8 @@ def get_normalized_train_dir(train_dir):
         os.unlink(global_train_dir)
     if not os.path.exists(train_dir):
         os.makedirs(train_dir)
+    print(global_train_dir)
+    print(os.path.abspath(train_dir))
     os.symlink(os.path.abspath(train_dir), global_train_dir)
     return global_train_dir
 
@@ -101,9 +103,9 @@ def main(_):
 
     # Do what you need to load datasets from FLAGS.data_dir
     dataset_train = load_dataset(
-        FLAGS.data_dir+'/train.ids.context',
-        FLAGS.data_dir+'/train.ids.question',
-        FLAGS.data_dir+'/train.span'
+        FLAGS.data_dir+'/val.ids.context',
+        FLAGS.data_dir+'/val.ids.question',
+        FLAGS.data_dir+'/val.span'
     )
 
 
