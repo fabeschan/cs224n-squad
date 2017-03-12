@@ -27,25 +27,26 @@ def get_optimizer(opt):
     return optfn
 
 #
-class GRUattncell(rnn_cell.GRUCell):
+class GRUattncell(tf.nn.rnn_cell.GRUCell):
     def __init__(self, num_units, encoder_output, scope=None):
         self.hs = encoder_output
-        super(GRUattncell, self).__init__(num_units)
+        self.num_units = num_units
+        super(GRUattncell, self).__init__(self.num_units)
 
     def __call__(self, inputs, state, scope=None):
         # for Gru, out and state are the same
         gru_out, gru_state = super(GRUattncell, self).__call__(inputs, state, scope)
         with vs.variable_scope(scope or type(self). __name__):
             with vs.variable_scope("attn"):
-                ht = tf.nn.rnn_cell._linear(gru_out, self.num_units, True, 1.0)
+                ht = tf.nn.rnn_cell._linear(gru_state, self.num_units, True)
                 # after expand_dims shape = [num_units, 1]
                 # hs = [num_units, num_sources]
                 ht = tf.expand_dims(ht, axis=1)
             # scores list length: num_sources
-            scores = tf.reduce_sum(self.hs * ht, axis=0, keep_dims=True)
+            scores = tf.nn.softmax(tf.reduce_sum(self.hs * ht, axis=0, keep_dims=True))
             context = tf.reduce_sum(self.hs * scores, axis=1)
             with vs.variable_scope("AttnConcat"):
-                out = tf.nn.relu(tf.nn.rnn_cell._linear([context, gru_out], self.num_units, True, 1.0))
+                out = tf.nn.relu(tf.nn.rnn_cell._linear([context, gru_state], self.num_units, True))
         return (out, out)
 
 class Encoder(object):
@@ -56,7 +57,7 @@ class Encoder(object):
         self.cell = tf.nn.rnn_cell.BasicLSTMCell(self.size)
         print(self.cell.state_size)
 
-    def encode(self, inputs, masks, encoder_state_input, scope='', reuse=False):
+    def encode(self, inputs, masks, scope='', reuse=False):
         """
         In a generalized encode function, you pass in your inputs,
         masks, and an initial
@@ -76,22 +77,24 @@ class Encoder(object):
             seqlen = tf.reduce_sum(masks, axis=1) # TODO: choose correct axis!
             # (fw_o, bw_o), _ = birectional_dynamic_rnn(self.cell, inputs, srclen=srclen, intial_state=None)
 
-            outputs, state = tf.nn.dynamic_rnn(
+            outputs, (f_s, b_s) = tf.nn.bidirectional_dynamic_rnn(
+                self.cell,
                 self.cell,
                 inputs,
                 sequence_length=seqlen,
-                initial_state=encoder_state_input,
                 dtype=tf.float64,
                 scope=scope
             )
-        return outputs, state #TODO: ????
+            # TODO: make sure the out put is all states for using in attention
+        return tf.concat(2, outputs), tf.concat(1, [f_s[1], b_s[1]]) #TODO: ????
 
     def encode_with_attn(self, inputs, masks, prev_states, scope="", reuse=False):
-        self.att_gru_cell = GRUattncell(self.size, prev_states)
+        self.att_gru_cell = GRUattncell(self.size*2, prev_states)
+        #self.att_gru_cell = tf.contrib.rnn.AttentionCellWrapper(tf.contrib.rnn.GRUCell, attn_length = FLAGS.question_size, attn_size=None, attn_vec_size=None, input_size=self.size, state_is_tuple=False)
         with vs.variable_scope(scope, reuse):
             seqlen = tf.reduce_sum(masks, axis=1)
             outputs, state = tf.nn.dynamic_rnn(
-                self.att_cell,
+                self.att_gru_cell,
                 inputs,
                 sequence_length=seqlen,
                 initial_state=None,
@@ -176,16 +179,19 @@ class QASystem(object):
             self.setup_embeddings()
             self.setup_system()
             self.setup_loss()
-
-        merged = tf.summary.merge_all()
-        self.writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', session.graph)
+        self.merged = tf.summary.merge_all()
         self.saver = tf.train.Saver()
         # ==== set up training/updating procedure ====
         params = tf.trainable_variables()
-        #grads = tf.gradient(self.loss, params)
+        grads = tf.gradients(self.loss, params)
 
-        # "adam" or "sgd"
-        self.updates = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate).minimize(self.loss)
+        optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate)
+        print("grad_clip:",FLAGS.grad_clip)
+        if FLAGS.grad_clip:
+            clipped_grad, self.norm = tf.clip_by_global_norm(grads, FLAGS.max_gradient_norm)
+            tf.summary.scalar('norm', self.norm)
+            optimizer = optimizer.apply_gradients(zip(clipped_grad, params))
+        self.updates = optimizer.minimize(self.loss)
 
         self.saver = tf.train.Saver()
 
@@ -199,11 +205,13 @@ class QASystem(object):
         to assemble your reading comprehension system!
         :return:
         """
-        q_o, h_q = self.encoder.encode(scope='q_enc', inputs=self.question_var, masks=self.question_masks, encoder_state_input=None)
+        q_o, h_q = self.encoder.encode(scope='q_enc', inputs=self.question_var, masks=self.question_masks)
         q_o, h_p = self.encoder.encode_with_attn(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, prev_states=q_o, reuse=False)
         #p_o, h_p = self.encoder.encode(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, encoder_state_input=h_q, reuse=True)
 
-        self.a_s, self.a_e = self.decoder.decode(h_q[0], h_p[0]) #need double check
+        #self.a_s, self.a_e = self.decoder.decode(h_q[0], h_p[0]) #need double check
+        print(h_p)
+        self.a_s, self.a_e = self.decoder.decode(h_q, h_p) #need double check
 
 
     def setup_loss(self):
@@ -218,6 +226,7 @@ class QASystem(object):
             self.loss_s = l1
             self.loss_e = l2
             self.loss = l1 + l2
+
             tf.summary.scalar('loss', self.loss)
             tf.summary.scalar('loss_s', self.loss_s)
             tf.summary.scalar('loss_e', self.loss_e)
@@ -247,7 +256,7 @@ class QASystem(object):
             self.paragraph_masks: paragraph_masks,
             self.question_masks: question_masks
         }
-        output_feed = [self.merged, self.updates, self.loss, self.loss_s, self.loss_e]
+        output_feed = [self.merged, self.norm, self.updates, self.loss, self.loss_s, self.loss_e]
         outputs = session.run(output_feed, input_feed)
         return outputs
 
@@ -403,6 +412,7 @@ class QASystem(object):
         num_params = sum(map(lambda t: np.prod(tf.shape(t.value()).eval()), params))
         toc = time.time()
         logging.info("Number of params: %d (retreival took %f secs)" % (num_params, toc - tic))
+        self.writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', session.graph)
 
         i = 0
         for e in range(FLAGS.epochs):
@@ -420,9 +430,10 @@ class QASystem(object):
                 p_pad, paragraph_masks = zip(*p_pad_mask)
                 q_pad, question_masks = zip(*q_pad_mask)
 
-                summary, opt, *loss = self.optimize(session, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
+                summary, norm, opt, loss, loss_s, loss_e = self.optimize(session, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
                 self.writer.add_summary(summary, i)
-                print("loss: {}".format(loss))
+                print("loss: {}".format(loss, loss_s, loss_e))
+                print("norm: {}".format(norm))
                 i += 1
 
             ## save the model
