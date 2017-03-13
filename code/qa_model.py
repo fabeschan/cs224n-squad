@@ -183,15 +183,22 @@ class QASystem(object):
         self.saver = tf.train.Saver()
         # ==== set up training/updating procedure ====
         params = tf.trainable_variables()
-        grads = tf.gradients(self.loss, params)
+        #grads = tf.gradients(self.loss, params)
 
         optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate)
+
+        grads_and_vars = optimizer.compute_gradients(self.loss, params)
+        grads = [x[0] for x in grads_and_vars]
         print("grad_clip:",FLAGS.grad_clip)
         if FLAGS.grad_clip:
-            clipped_grad, self.norm = tf.clip_by_global_norm(grads, FLAGS.max_gradient_norm)
-            tf.summary.scalar('norm', self.norm)
-            optimizer = optimizer.apply_gradients(zip(clipped_grad, params))
-        self.updates = optimizer.minimize(self.loss)
+            grads, _ = tf.clip_by_global_norm(grads, FLAGS.max_gradient_norm)
+            grads_and_vars = zip(grads, params)
+
+
+        optimizer = optimizer.apply_gradients(grads_and_vars)
+        self.norm = tf.global_norm(grads)
+        tf.summary.scalar('norm', self.norm)
+        self.updates = optimizer
 
         self.saver = tf.train.Saver()
 
@@ -206,7 +213,7 @@ class QASystem(object):
         :return:
         """
         q_o, h_q = self.encoder.encode(scope='q_enc', inputs=self.question_var, masks=self.question_masks)
-        q_o, h_p = self.encoder.encode_with_attn(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, prev_states=q_o, reuse=False)
+        q_o, h_p = self.encoder.encode_with_attn(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, prev_states=q_o, reuse=True)
         #p_o, h_p = self.encoder.encode(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, encoder_state_input=h_q, reuse=True)
 
         #self.a_s, self.a_e = self.decoder.decode(h_q[0], h_p[0]) #need double check
@@ -433,6 +440,8 @@ class QASystem(object):
                 summary, norm, opt, loss, loss_s, loss_e = self.optimize(session, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
                 self.writer.add_summary(summary, i)
                 print("loss: {}".format(loss, loss_s, loss_e))
+                if(norm > FLAGS.max_gradient_norm):
+                    print("boom, I exploded here")
                 print("norm: {}".format(norm))
                 i += 1
 
