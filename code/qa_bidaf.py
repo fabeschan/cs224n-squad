@@ -104,7 +104,7 @@ class QASystem(object):
         self.setup_modeling_layer()
         self.setup_final_layer()
 
-    def setup_final_layer():
+    def setup_final_layer(self):
         # Compute a new vector for each paragraph position that
         # multiplies context-paragraph representation with the attention vector.
         M = tf.concat(2, [self.G, self.M])
