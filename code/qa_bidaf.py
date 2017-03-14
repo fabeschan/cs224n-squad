@@ -16,7 +16,6 @@ FLAGS = tf.app.flags.FLAGS
 #
 logging.basicConfig(level=logging.INFO)
 
-
 def get_optimizer(opt):
     if opt == "adam":
         optfn = tf.train.AdamOptimizer
@@ -25,72 +24,6 @@ def get_optimizer(opt):
     else:
         assert (False)
     return optfn
-
-class Encoder(object):
-    def __init__(self, size, vocab_dim):
-        self.size = size
-        self.vocab_dim = vocab_dim
-        self.cell = tf.nn.rnn_cell.BasicLSTMCell
-        print(self.cell.state_size)
-
-    def encode(self, inputs, masks, encoder_state_input=[None, None], scope='', reuse=False):
-        """
-        In a generalized encode function, you pass in your inputs,
-        masks, and an initial
-        hidden state input into this function.
-
-        :param inputs: Symbolic representations of your input
-        :param masks: this is to make sure tf.nn.dynamic_rnn doesn't iterate
-                      through masked steps
-        :param encoder_state_input: (Optional) pass this as initial hidden state
-                                    to tf.nn.dynamic_rnn to build conditional representations
-        :return: an encoded representation of your input.
-                 It can be context-level representation, word-level representation,
-                 or both.
-        """
-        with vs.variable_scope(scope, reuse):
-            seqlen = tf.reduce_sum(masks, axis=1) # TODO: choose correct axis!
-
-            cell_fw = self.cell(self.size)
-            cell_bw = self.cell(self.size)
-
-            outputs, state = tf.nn.bidirectional_dynamic_rnn(
-                cell_fw,
-                cell_bw,
-                inputs,
-                initial_state_fw=encoder_state_input[0], initial_state_bw=encoder_state_input[1],
-                sequence_length=seqlen,
-                dtype=tf.float32,
-                scope=scope
-            )
-
-        outputs = tf.concat(2, outputs) # shape = (None, max_question_length, 2*state_size)
-        outputs = tf.nn.dropout(outputs, FLAGS.dropout)
-        return outputs, state
-
-class Decoder(object):
-    def __init__(self, output_size):
-        self.output_size = output_size
-
-    def decode(self, h_q, h_p):
-        """
-        takes in a knowledge representation
-        and output a probability estimation over
-        all paragraph tokens on which token should be
-        the start of the answer span, and which should be
-        the end of the answer span.
-
-        :param knowledge_rep: it is a representation of the paragraph and question,
-                              decided by how you choose to implement the encoder
-        :return:
-        """
-        with vs.variable_scope("answer_start"):
-            a_s = tf.nn.rnn_cell._linear([h_q, h_p], FLAGS.output_size, True)
-        with vs.variable_scope("answer_end"):
-            a_e = tf.nn.rnn_cell._linear([h_q, h_p], FLAGS.output_size, True)
-        return a_s, a_e
-
-
 
 def padding_batch(batch, pad_size):
     padded_batch = []
@@ -111,27 +44,16 @@ def padding(maxlength, vector):
         _vector = vector[:maxlength]
     return (_vector, mask)
 
-# def one_hot(examples, size):
-#     result = []
-#     for i in examples:
-#         temp = [0] * size
-#         temp[i] = 1
-#         result.append(temp)
-#     return result
-
 class QASystem(object):
-    def __init__(self, encoder, decoder, embed_path, vocab, rev_vocab, *args):
+    def __init__(self, embed_path, vocab, rev_vocab, *args):
         """
         Initializes your System
 
-        :param encoder: an encoder that you constructed in train.py
-        :param decoder: a decoder that you constructed in train.py
         :param args: pass in more arguments as needed
         """
 
         self.cell = tf.nn.rnn_cell.GRUCell
         self.embed_path = embed_path
-        self.encoder, self.decoder = encoder, decoder
         self.vocab, self.rev_vocab = vocab, rev_vocab
         self.dropout_value = FLAGS.dropout
 
@@ -165,8 +87,7 @@ class QASystem(object):
             grads_and_vars = zip(grads, params)
 
 
-        optimizer = optimizer.apply_gradients(grads_and_vars)
-        self.norm = tf.global_norm(grads)
+        optimizer = optimizer.apply_gradients(grads_and_vars) self.norm = tf.global_norm(grads)
         tf.summary.scalar('norm', self.norm)
         self.updates = optimizer
 
@@ -176,39 +97,23 @@ class QASystem(object):
         #self.vocab, self.rev_vocab = initialize_vocab(FLAGS.vocab_path)
 
     def setup_system(self):
-        """
-        After your modularized implementation of encoder and decoder
-        you should call various functions inside encoder, decoder here
-        to assemble your reading comprehension system!
-        :return:
-        """
-        xavier_initializer = tf.uniform_unit_scaling_initializer(1.0)
+        self.initializer = tf.uniform_unit_scaling_initializer(1.0)
+        self.setup_context_embed_layer()
+        self.setup_attn_layer()
+        self.setup_modeling_layer()
+        self.setup_final_layer()
 
-        '''
-        question_outputs, question_state = self.encoder.encode(scope='q_enc', inputs=self.question_var, masks=self.question_masks)
-        paragraph_outputs, paragraph_state = self.encoder.encode(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, encoder_state_input=question_state, reuse=True)
-        '''
-
-        # Step 4: Compute a new vector for each paragraph position that multiplies context-paragraph representation with the attention vector.
-        M = tf.concat(2, [G, M])
+    def setup_final_layer():
+        # Compute a new vector for each paragraph position that
+        # multiplies context-paragraph representation with the attention vector.
+        M = tf.concat(2, [self.G, self.M])
         print (M.get_shape())
-        M2 = tf.concat(2, [G, M2])
+        M2 = tf.concat(2, [self.G, self.M2])
         print (M2.get_shape())
         with tf.variable_scope("preds_start"):
-            self.preds_start = tf.squeeze(tf.contrib.layers.fully_connected(M, 1, weights_initializer=xavier_initializer))
+            self.a_s = tf.squeeze(tf.contrib.layers.fully_connected(M, 1, weights_initializer=self.initializer))
         with tf.variable_scope("preds_end"):
-            self.preds_end = tf.squeeze(tf.contrib.layers.fully_connected(M2, 1, weights_initializer=xavier_initializer))
-        self.a_s, self.a_e = self.preds_start, self.preds_end
-
-        '''
-        #self.a_s, self.a_e = self.decoder.decode(h_q[0], h_p[0]) #need double check
-        print(h_p)
-        self.a_s, self.a_e = self.decoder.decode(h_q, h_p) #need double check
-        with vs.variable_scope("answer_start"):
-            self.a_s = tf.nn.rnn_cell._linear([M], FLAGS.output_size, True)
-        with vs.variable_scope("answer_end"):
-            self.a_e = tf.nn.rnn_cell._linear([M2], FLAGS.output_size, True)
-        '''
+            self.a_e = tf.squeeze(tf.contrib.layers.fully_connected(M2, 1, weights_initializer=self.initializer))
 
     def setup_context_embed_layer(self):
         # Contextual Embed Layer for question.
@@ -252,12 +157,13 @@ class QASystem(object):
         self.question_outputs = question_outputs
         self.paragraph_outputs = paragraph_outputs
 
-            # Attention Flow Layer
+    # Attention Flow Layer
     def setup_attn_layer(self):
         with tf.variable_scope("attentionlayer"):
             W1 = tf.get_variable("W1", shape = [FLAGS.state_size*2])
             W2 = tf.get_variable("W2", shape = [FLAGS.state_size*2])
             W3 = tf.get_variable("W3", shape = [FLAGS.state_size*2])
+
         #u => queryvector
         u = tf.expand_dims(self.question_outputs, axis=1)
         #h -> context vector
@@ -287,15 +193,15 @@ class QASystem(object):
             modeling_cell_bw1 = self.cell(FLAGS.state_size)
 
             seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
-            
+
             outputs1, _ = tf.nn.bidirectional_dynamic_rnn(
-                modeling_cell_fw1, 
-                modeling_cell_bw1, 
+                modeling_cell_fw1,
+                modeling_cell_bw1,
                 self.G,
                 sequence_length=seqlen_paragraph,
                 dtype=tf.float32,
             )
-            M1 = tf.concat(2, outputs) 
+            M1 = tf.concat(2, outputs)
             M1 = tf.nn.dropout(M, self.dropout)
 
         with tf.variable_scope("secondmodel"):
@@ -303,10 +209,10 @@ class QASystem(object):
             modeling_cell_bw2 = self.cell(FLAGS.state_size)
 
             seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
-            
+
             outputs2, _ = tf.nn.bidirectional_dynamic_rnn(
-                modeling_cell_fw2, 
-                modeling_cell_bw2, 
+                modeling_cell_fw2,
+                modeling_cell_bw2,
                 M1,
                 sequence_length=seqlen_paragraph,
                 dtype=tf.float32,
@@ -533,7 +439,7 @@ class QASystem(object):
                 summary, norm, opt, loss = self.optimize(session, p_pad, q_pad, start_answer, end_answer, paragraph_masks, question_masks)
                 self.writer.add_summary(summary, i)
                 print("loss: {}".format(loss))
-                if(norm > FLAGS.max_gradient_norm):
+                if (norm > FLAGS.max_gradient_norm):
                     print("boom, I exploded here")
                 print("norm: {}".format(norm))
                 i += 1
