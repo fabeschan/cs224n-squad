@@ -202,7 +202,7 @@ class QASystem(object):
                 sequence_length=seqlen_paragraph,
                 dtype=tf.float32,
             )
-            M1 = tf.concat(2, outputs)
+            M1 = tf.concat(2, outputs1)
             M1 = tf.nn.dropout(M, self.dropout)
 
         with tf.variable_scope("secondmodel"):
