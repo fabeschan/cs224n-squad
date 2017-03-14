@@ -87,7 +87,8 @@ class QASystem(object):
             grads_and_vars = zip(grads, params)
 
 
-        optimizer = optimizer.apply_gradients(grads_and_vars) self.norm = tf.global_norm(grads)
+        optimizer = optimizer.apply_gradients(grads_and_vars)
+        self.norm = tf.global_norm(grads)
         tf.summary.scalar('norm', self.norm)
         self.updates = optimizer
 
