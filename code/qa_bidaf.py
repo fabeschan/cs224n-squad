@@ -203,7 +203,7 @@ class QASystem(object):
                 dtype=tf.float32,
             )
             M1 = tf.concat(2, outputs1)
-            M1 = tf.nn.dropout(M, self.dropout)
+            M1 = tf.nn.dropout(M1, self.dropout)
 
         with tf.variable_scope("secondmodel"):
             modeling_cell_fw2 = self.cell(FLAGS.state_size)
