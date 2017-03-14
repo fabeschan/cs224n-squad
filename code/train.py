@@ -7,6 +7,7 @@ import json
 
 import tensorflow as tf
 
+#from qa_bidaf import Encoder, QASystem, Decoder
 from qa_model import Encoder, QASystem, Decoder
 from os.path import join as pjoin
 
@@ -15,9 +16,9 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
-tf.app.flags.DEFINE_float("max_gradient_norm", 0.1, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_float("dropout", 0.15, "Fraction of units randomly dropped on non-recurrent connections.")
-tf.app.flags.DEFINE_integer("batch_size", 50, "Batch size to use during training.")
+tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
+tf.app.flags.DEFINE_float("dropout", 0.2, "Fraction of units randomly dropped on non-recurrent connections.")
+tf.app.flags.DEFINE_integer("batch_size", 20, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 15, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("state_size", 200, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("output_size", 750, "The output size of your model.")
@@ -104,9 +105,9 @@ def main(_):
 
     # Do what you need to load datasets from FLAGS.data_dir
     dataset_train = load_dataset(
-        FLAGS.data_dir+'/val.ids.context',
-        FLAGS.data_dir+'/val.ids.question',
-        FLAGS.data_dir+'/val.span'
+        FLAGS.data_dir+'/train.ids.context',
+        FLAGS.data_dir+'/train.ids.question',
+        FLAGS.data_dir+'/train.span'
     )
 
 
