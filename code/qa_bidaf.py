@@ -129,6 +129,7 @@ class QASystem(object):
         :param args: pass in more arguments as needed
         """
 
+        self.cell = tf.nn.rnn_cell.GRUCell
         self.embed_path = embed_path
         self.encoder, self.decoder = encoder, decoder
         self.vocab, self.rev_vocab = vocab, rev_vocab
@@ -187,38 +188,6 @@ class QASystem(object):
         question_outputs, question_state = self.encoder.encode(scope='q_enc', inputs=self.question_var, masks=self.question_masks)
         paragraph_outputs, paragraph_state = self.encoder.encode(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, encoder_state_input=question_state, reuse=True)
         '''
-
-        dropout_rate = self.dropout
-        self.cell = tf.nn.rnn_cell.GRUCell
-
-        # Contextual Embed Layer for question.
-        with tf.variable_scope("context_embed"):
-            question_cell_fw = self.cell(FLAGS.state_size)
-            question_cell_bw = self.cell(FLAGS.state_size)
-
-            seqlen_question = tf.reduce_sum(self.question_masks, axis=1) # TODO: choose correct axis!
-
-            question_outputs, state = tf.nn.bidirectional_dynamic_rnn(
-                question_cell_fw, question_cell_bw, self.question_var,
-                sequence_length=seqlen_question, dtype=tf.float32, scope='embed'
-            )
-            question_outputs_fw, question_outputs_bw = question_outputs
-            state_fw, state_bw = state
-
-            question_outputs = tf.concat(2, question_outputs) # shape = (None, max_question_length, 2*state_size)
-            question_outputs = tf.nn.dropout(question_outputs, self.dropout)
-
-            seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
-
-            tf.get_variable_scope().reuse_variables()
-            paragraph_outputs, _ = tf.nn.bidirectional_dynamic_rnn(
-                question_cell_fw, question_cell_bw, self.paragraph_var, sequence_length=seqlen_paragraph,
-                initial_state_fw=state_fw, initial_state_bw=state_bw, dtype=tf.float32,
-                scope='embed'
-            )
-            paragraph_outputs_fw, paragraph_outputs_bw = paragraph_outputs
-            paragraph_outputs = tf.concat(2, paragraph_outputs) # shape = (None, max_paragraph_length, 2*state_size)
-            paragraph_outputs = tf.nn.dropout(paragraph_outputs, self.dropout)
 
         # Attention Flow Layer
         with tf.variable_scope("attention"):
@@ -295,6 +264,48 @@ class QASystem(object):
         with vs.variable_scope("answer_end"):
             self.a_e = tf.nn.rnn_cell._linear([M2], FLAGS.output_size, True)
         '''
+
+    def setup_context_embed_layer(self):
+        # Contextual Embed Layer for question.
+        with tf.variable_scope("context_embed"):
+            question_cell_fw = self.cell(FLAGS.state_size)
+            question_cell_bw = self.cell(FLAGS.state_size)
+
+            seqlen_question = tf.reduce_sum(self.question_masks, axis=1) # TODO: choose correct axis!
+
+            question_outputs, state = tf.nn.bidirectional_dynamic_rnn(
+                question_cell_fw,
+                question_cell_bw,
+                self.question_var,
+                sequence_length=seqlen_question,
+                dtype=tf.float32,
+                scope='embed'
+            )
+            question_outputs_fw, question_outputs_bw = question_outputs
+            state_fw, state_bw = state
+
+            question_outputs = tf.concat(2, question_outputs) # shape = (None, max_question_length, 2*state_size)
+            question_outputs = tf.nn.dropout(question_outputs, self.dropout)
+
+            seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
+
+            tf.get_variable_scope().reuse_variables()
+            paragraph_outputs, _ = tf.nn.bidirectional_dynamic_rnn(
+                question_cell_fw,
+                question_cell_bw,
+                self.paragraph_var,
+                sequence_length=seqlen_paragraph,
+                initial_state_fw=state_fw,
+                initial_state_bw=state_bw,
+                dtype=tf.float32,
+                scope='embed'
+            )
+            paragraph_outputs_fw, paragraph_outputs_bw = paragraph_outputs
+            paragraph_outputs = tf.concat(2, paragraph_outputs) # shape = (None, max_paragraph_length, 2*state_size)
+            paragraph_outputs = tf.nn.dropout(paragraph_outputs, self.dropout)
+
+        self.question_outputs = question_outputs
+        self.paragraph_outputs = paragraph_outputs
 
     def setup_loss(self):
         """
