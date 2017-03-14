@@ -107,12 +107,12 @@ class QASystem(object):
     def setup_final_layer(self):
         # Compute a new vector for each paragraph position that
         # multiplies context-paragraph representation with the attention vector.
-        M = tf.concat(2, [self.G, self.M])
-        print (M.get_shape())
+        M1 = tf.concat(2, [self.G, self.M1])
+        print (M1.get_shape())
         M2 = tf.concat(2, [self.G, self.M2])
         print (M2.get_shape())
         with tf.variable_scope("preds_start"):
-            self.a_s = tf.squeeze(tf.contrib.layers.fully_connected(M, 1, weights_initializer=self.initializer))
+            self.a_s = tf.squeeze(tf.contrib.layers.fully_connected(M1, 1, weights_initializer=self.initializer))
         with tf.variable_scope("preds_end"):
             self.a_e = tf.squeeze(tf.contrib.layers.fully_connected(M2, 1, weights_initializer=self.initializer))
 
