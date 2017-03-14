@@ -189,61 +189,6 @@ class QASystem(object):
         paragraph_outputs, paragraph_state = self.encoder.encode(scope='p_enc', inputs=self.paragraph_var, masks=self.paragraph_masks, encoder_state_input=question_state, reuse=True)
         '''
 
-        # Attention Flow Layer
-        with tf.variable_scope("attention"):
-            ws1 = tf.get_variable("ws1", shape=[2*FLAGS.state_size])
-            ws2 = tf.get_variable("ws2", shape=[2*FLAGS.state_size])
-            ws3 = tf.get_variable("ws3", shape=[2*FLAGS.state_size])
-
-        q2 = tf.expand_dims(question_outputs, axis=1) # shape = (None, 1, max_question_length, 2*self.size)
-        c2 = tf.expand_dims(paragraph_outputs, axis=2) # shape = (None, max_paragraph_length, 1, 2*self.size)
-        #S = tf.reduce_sum(q2 * ws2, axis=3) + tf.reduce_sum(c2 * ws3, axis=3)
-        S = tf.reduce_sum(q2 * c2 * ws1, axis=3) + tf.reduce_sum(q2 * ws2, axis=3) + tf.reduce_sum(c2 * ws3, axis=3)
-
-        # Context-to-query-attention
-        logging.info("Setting up ContextToQuery attention")
-        at = tf.expand_dims(tf.nn.softmax(S), axis=3) # shape = (None, max_paragraph_length, max_query_length, 1)
-        q3 = tf.expand_dims(question_outputs, axis=1) # shape = (None, 1, max_query_length, 2*self.size)
-        U_tilde = tf.reduce_sum(at * q3, axis=2) # shape = (None, max_paragraph_length, 2*state_size)
-
-        # Query-to-paragraph attention
-        logging.info("Setting up QueryToContext attention")
-        qtc_attn = tf.nn.softmax(tf.reduce_max(S, axis=2, keep_dims=True)) # shape = (None, max_paragraph_length, 1)
-        h_tilde = tf.reduce_sum(qtc_attn * paragraph_outputs, axis=1) # shape = (None, 2*d)
-        H_tilde = tf.reshape(tf.tile(h_tilde, [1, FLAGS.output_size]), [-1, FLAGS.output_size, 2*FLAGS.state_size])
-
-        logging.info("Setting up G")
-        G = tf.concat(2, [paragraph_outputs, U_tilde, paragraph_outputs * U_tilde, paragraph_outputs * H_tilde]) # shape = (none, max_paragraph_length, 6*d)
-
-        # Modeling Layer
-        logging.info("Setting up M")
-        with tf.variable_scope("modeling"):
-            modeling_cell_fw = self.cell(FLAGS.state_size)
-            modeling_cell_bw = self.cell(FLAGS.state_size)
-
-            seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
-            modeling_outputs, _ = tf.nn.bidirectional_dynamic_rnn(
-                modeling_cell_fw, modeling_cell_bw, G,
-                sequence_length=seqlen_paragraph,
-                dtype=tf.float32,
-            )
-            M = tf.concat(2, modeling_outputs) # shape = (None, max_paragraph_length, 2*state_size)
-            M = tf.nn.dropout(M, self.dropout)
-
-        logging.info("Setting up M2")
-        with tf.variable_scope("modeling2"):
-            modeling_cell_fw2 = tf.nn.rnn_cell.GRUCell(FLAGS.state_size)
-            modeling_cell_bw2 = tf.nn.rnn_cell.GRUCell(FLAGS.state_size)
-
-            seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
-            modeling_outputs2, _ = tf.nn.bidirectional_dynamic_rnn(
-                modeling_cell_fw2, modeling_cell_bw2, M,
-                sequence_length=seqlen_paragraph,
-                dtype=tf.float32,
-            )
-            M2 = tf.concat(2, modeling_outputs2) # shape = (None, max_paragraph_length, 2*state_size)
-            M2 = tf.nn.dropout(M2, self.dropout)
-
         # Step 4: Compute a new vector for each paragraph position that multiplies context-paragraph representation with the attention vector.
         M = tf.concat(2, [G, M])
         print (M.get_shape())
@@ -306,6 +251,71 @@ class QASystem(object):
 
         self.question_outputs = question_outputs
         self.paragraph_outputs = paragraph_outputs
+
+            # Attention Flow Layer
+    def setup_attn_layer(self):
+        with tf.variable_scope("attentionlayer"):
+            W1 = tf.get_variable("W1", shape = [FLAGS.state_size*2])
+            W2 = tf.get_variable("W2", shape = [FLAGS.state_size*2])
+            W3 = tf.get_variable("W3", shape = [FLAGS.state_size*2])
+        #u => queryvector
+        u = tf.expand_dims(self.question_outputs, axis=1)
+        #h -> context vector
+        h = tf.expand_dims(self.paragraph_outputs, axis=2)
+        #Similarity element multiplication
+        S = tf.reduce_sum(W1*u*h, axis=3) + tf.reduce_sum(W2*u, axis=3) + tf.reduce_sum(W3*h, axis=3)
+
+        #Context-to-Query attn
+        #attention weight
+        at = tf.expand_dims(tf.nn.softmax(S), axis =3)
+        U_t = tf.reduce_sum(at*u, axis =2)
+
+        #query-to-paragraph attn
+        b = tf.nn.softmax(tf.reduce_max(S, axis=2, keep_dims=True))
+        h_t = tf.reduce_sum(b*self.paragraph_outputs, axis=1)
+
+        H_tilde = tf.reshape(tf.tile(h_t, [1, FLAGS.output_size]), [-1, FLAGS.output_size, 2*FLAGS.state_size])
+
+        #G
+        G = tf.concat(2, [self.paragraph_outputs, U_t, self.paragraph_outputs * U_t, self.paragraph_outputs * H_tilde])
+        self.G = G
+
+    def setup_modeling_layer(self):
+
+        with tf.variable_scope("firstmodel"):
+            modeling_cell_fw1 = self.cell(FLAGS.state_size)
+            modeling_cell_bw1 = self.cell(FLAGS.state_size)
+
+            seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
+            
+            outputs1, _ = tf.nn.bidirectional_dynamic_rnn(
+                modeling_cell_fw1, 
+                modeling_cell_bw1, 
+                self.G,
+                sequence_length=seqlen_paragraph,
+                dtype=tf.float32,
+            )
+            M1 = tf.concat(2, outputs) 
+            M1 = tf.nn.dropout(M, self.dropout)
+
+        with tf.variable_scope("secondmodel"):
+            modeling_cell_fw2 = self.cell(FLAGS.state_size)
+            modeling_cell_bw2 = self.cell(FLAGS.state_size)
+
+            seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
+            
+            outputs2, _ = tf.nn.bidirectional_dynamic_rnn(
+                modeling_cell_fw2, 
+                modeling_cell_bw2, 
+                M1,
+                sequence_length=seqlen_paragraph,
+                dtype=tf.float32,
+            )
+            M2 = tf.concat(2, outputs2) # shape = (None, max_paragraph_length, 2*state_size)
+            M2 = tf.nn.dropout(M2, self.dropout)
+        self.M1 = M1
+        self.M2 = M2
+
 
     def setup_loss(self):
         """
