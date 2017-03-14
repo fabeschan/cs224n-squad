@@ -64,7 +64,7 @@ class Encoder(object):
                 scope=scope
             )
 
-        outputs = tf.concat(2, outputs) # shape = (None, max_question_length, 2*hidden_size)
+        outputs = tf.concat(2, outputs) # shape = (None, max_question_length, 2*state_size)
         outputs = tf.nn.dropout(outputs, FLAGS.dropout)
         return outputs, state
 
@@ -198,22 +198,26 @@ class QASystem(object):
 
             seqlen_question = tf.reduce_sum(self.question_masks, axis=1) # TODO: choose correct axis!
 
-            question_outputs, state = tf.nn.bidirectional_dynamic_rnn(question_cell_fw, question_cell_bw, self.question_var,
-                sequence_length=seqlen_question, dtype=tf.float32, scope='embed')
+            question_outputs, state = tf.nn.bidirectional_dynamic_rnn(
+                question_cell_fw, question_cell_bw, self.question_var,
+                sequence_length=seqlen_question, dtype=tf.float32, scope='embed'
+            )
             question_outputs_fw, question_outputs_bw = question_outputs
             state_fw, state_bw = state
 
-            question_outputs = tf.concat(2, question_outputs) # shape = (None, max_question_length, 2*hidden_size)
+            question_outputs = tf.concat(2, question_outputs) # shape = (None, max_question_length, 2*state_size)
             question_outputs = tf.nn.dropout(question_outputs, self.dropout)
 
             seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
 
             tf.get_variable_scope().reuse_variables()
-            paragraph_outputs, _ = tf.nn.bidirectional_dynamic_rnn(question_cell_fw, question_cell_bw, self.paragraph_var,
-                sequence_length=seqlen_paragraph, initial_state_fw=state_fw, initial_state_bw=state_bw, dtype=tf.float32,
-                scope='embed')
+            paragraph_outputs, _ = tf.nn.bidirectional_dynamic_rnn(
+                question_cell_fw, question_cell_bw, self.paragraph_var, sequence_length=seqlen_paragraph,
+                initial_state_fw=state_fw, initial_state_bw=state_bw, dtype=tf.float32,
+                scope='embed'
+            )
             paragraph_outputs_fw, paragraph_outputs_bw = paragraph_outputs
-            paragraph_outputs = tf.concat(2, paragraph_outputs) # shape = (None, max_paragraph_length, 2*hidden_size)
+            paragraph_outputs = tf.concat(2, paragraph_outputs) # shape = (None, max_paragraph_length, 2*state_size)
             paragraph_outputs = tf.nn.dropout(paragraph_outputs, self.dropout)
 
         # Attention Flow Layer
@@ -224,14 +228,14 @@ class QASystem(object):
 
         q2 = tf.expand_dims(question_outputs, axis=1) # shape = (None, 1, max_question_length, 2*self.size)
         c2 = tf.expand_dims(paragraph_outputs, axis=2) # shape = (None, max_paragraph_length, 1, 2*self.size)
-        S = tf.reduce_sum(q2 * ws2, axis=3) + tf.reduce_sum(c2 * ws3, axis=3)
-        #S = tf.reduce_sum(q2 * c2 * ws1, axis=3) + tf.reduce_sum(q2 * ws2, axis=3) + tf.reduce_sum(c2 * ws3, axis=3)
+        #S = tf.reduce_sum(q2 * ws2, axis=3) + tf.reduce_sum(c2 * ws3, axis=3)
+        S = tf.reduce_sum(q2 * c2 * ws1, axis=3) + tf.reduce_sum(q2 * ws2, axis=3) + tf.reduce_sum(c2 * ws3, axis=3)
 
         # Context-to-query-attention
         logging.info("Setting up ContextToQuery attention")
         at = tf.expand_dims(tf.nn.softmax(S), axis=3) # shape = (None, max_paragraph_length, max_query_length, 1)
         q3 = tf.expand_dims(question_outputs, axis=1) # shape = (None, 1, max_query_length, 2*self.size)
-        U_tilde = tf.reduce_sum(at * q3, axis=2) # shape = (None, max_paragraph_length, 2*hidden_size)
+        U_tilde = tf.reduce_sum(at * q3, axis=2) # shape = (None, max_paragraph_length, 2*state_size)
 
         # Query-to-paragraph attention
         logging.info("Setting up QueryToContext attention")
@@ -248,12 +252,13 @@ class QASystem(object):
             modeling_cell_fw = self.cell(FLAGS.state_size)
             modeling_cell_bw = self.cell(FLAGS.state_size)
 
+            seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
             modeling_outputs, _ = tf.nn.bidirectional_dynamic_rnn(
                 modeling_cell_fw, modeling_cell_bw, G,
                 sequence_length=seqlen_paragraph,
                 dtype=tf.float32,
             )
-            M = tf.concat(2, modeling_outputs) # shape = (None, max_paragraph_length, 2*hidden_size)
+            M = tf.concat(2, modeling_outputs) # shape = (None, max_paragraph_length, 2*state_size)
             M = tf.nn.dropout(M, self.dropout)
 
         logging.info("Setting up M2")
@@ -261,12 +266,13 @@ class QASystem(object):
             modeling_cell_fw2 = tf.nn.rnn_cell.GRUCell(FLAGS.state_size)
             modeling_cell_bw2 = tf.nn.rnn_cell.GRUCell(FLAGS.state_size)
 
+            seqlen_paragraph = tf.reduce_sum(self.paragraph_masks, axis=1) # TODO: choose correct axis!
             modeling_outputs2, _ = tf.nn.bidirectional_dynamic_rnn(
                 modeling_cell_fw2, modeling_cell_bw2, M,
                 sequence_length=seqlen_paragraph,
                 dtype=tf.float32,
             )
-            M2 = tf.concat(2, modeling_outputs2) # shape = (None, max_paragraph_length, 2*hidden_size)
+            M2 = tf.concat(2, modeling_outputs2) # shape = (None, max_paragraph_length, 2*state_size)
             M2 = tf.nn.dropout(M2, self.dropout)
 
         # Step 4: Compute a new vector for each paragraph position that multiplies context-paragraph representation with the attention vector.
@@ -274,21 +280,21 @@ class QASystem(object):
         print (M.get_shape())
         M2 = tf.concat(2, [G, M2])
         print (M2.get_shape())
-        '''
         with tf.variable_scope("preds_start"):
             self.preds_start = tf.squeeze(tf.contrib.layers.fully_connected(M, 1, weights_initializer=xavier_initializer))
         with tf.variable_scope("preds_end"):
             self.preds_end = tf.squeeze(tf.contrib.layers.fully_connected(M2, 1, weights_initializer=xavier_initializer))
         self.a_s, self.a_e = self.preds_start, self.preds_end
 
+        '''
         #self.a_s, self.a_e = self.decoder.decode(h_q[0], h_p[0]) #need double check
         print(h_p)
         self.a_s, self.a_e = self.decoder.decode(h_q, h_p) #need double check
-        '''
         with vs.variable_scope("answer_start"):
             self.a_s = tf.nn.rnn_cell._linear([M], FLAGS.output_size, True)
         with vs.variable_scope("answer_end"):
             self.a_e = tf.nn.rnn_cell._linear([M2], FLAGS.output_size, True)
+        '''
 
     def setup_loss(self):
         """
@@ -397,9 +403,6 @@ class QASystem(object):
             count += 1
             p, q, a = zip(*batch)
             start_answer, end_answer = zip(*a)
-            # start_answer = one_hot(start_answer, FLAGS.output_size)
-            # end_answer = one_hot(end_answer, FLAGS.output_size)
-            ### TODO: check the validation output sie and questio_size
             p_pad_mask = padding_batch(p,FLAGS.output_size)
             q_pad_mask = padding_batch(q,FLAGS.question_size)
             p_pad, paragraph_masks = zip(*p_pad_mask)
@@ -500,10 +503,7 @@ class QASystem(object):
                 if not batch:
                     break
                 p, q, a = zip(*batch)
-                # transfer a to be start_ans and end_ans
                 start_answer, end_answer = zip(*a)
-                #start_answer = one_hot(start_answer, FLAGS.output_size)
-                #end_answer = one_hot(end_answer, FLAGS.output_size)
                 p_pad_mask = padding_batch(p,FLAGS.output_size)
                 q_pad_mask = padding_batch(q,FLAGS.question_size)
                 p_pad, paragraph_masks = zip(*p_pad_mask)
@@ -518,7 +518,6 @@ class QASystem(object):
                 i += 1
 
             ## save the model
-            #saver = tf.train.Saver()
             self.saver.save(session, FLAGS.train_dir + '/model', global_step=e)
 
             val_loss = self.validate(session, dataset_val)
