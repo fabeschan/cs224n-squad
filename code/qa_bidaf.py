@@ -45,7 +45,7 @@ def padding(maxlength, vector):
     return (_vector, mask)
 
 class QASystem(object):
-    def __init__(self, embed_path, vocab, rev_vocab, *args):
+    def __init__(self, embed_path, vocab, rev_vocab):
         """
         Initializes your System
 
