@@ -105,8 +105,7 @@ class QASystem(object):
         self.setup_final_layer()
 
     def setup_final_layer(self):
-        # Compute a new vector for each paragraph position that
-        # multiplies context-paragraph representation with the attention vector.
+        # multiply context-paragraph rep vector with the attention vector.
         M1 = tf.concat(2, [self.G, self.M1])
         print (M1.get_shape())
         M2 = tf.concat(2, [self.G, self.M2])
@@ -117,7 +116,6 @@ class QASystem(object):
             self.a_e = tf.squeeze(tf.contrib.layers.fully_connected(M2, 1, weights_initializer=self.initializer))
 
     def setup_context_embed_layer(self):
-        # Contextual Embed Layer for question.
         with tf.variable_scope("context_embed"):
             question_cell_fw = self.cell(FLAGS.state_size)
             question_cell_bw = self.cell(FLAGS.state_size)
@@ -158,7 +156,6 @@ class QASystem(object):
         self.question_outputs = question_outputs
         self.paragraph_outputs = paragraph_outputs
 
-    # Attention Flow Layer
     def setup_attn_layer(self):
         with tf.variable_scope("attentionlayer"):
             W1 = tf.get_variable("W1", shape = [FLAGS.state_size*2])
