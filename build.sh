@@ -1,1 +1,1 @@
-docker build -t keras .
+docker build -t tfimg .

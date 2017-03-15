@@ -5,4 +5,4 @@ nvidia-docker run \
     --workdir=/opt \
     -v `pwd`:/opt \
     -v /tmp:/tmp \
-    tensorflow/tensorflow:0.12.1-gpu $@
+    tfimg $@
