@@ -107,9 +107,7 @@ class QASystem(object):
         c_d = tf.matmul(q_concat, alphap) # 2h*p
         p_concat = tf.concat([tf.transpose(p_emb_p, perm = [0, 2, 1]), c_d], 1)
 
-
         return p_concat #tf.concat([s, s_enrich, tf.transpose(p_emb_p, perm = [0, 2, 1]) ], 1) #c, tf.transpose(pp, perm = [0, 2, 1]),
-
 
 
 ############## MPCM + COATT ENSEMBLE #####################
@@ -162,15 +160,8 @@ class QASystem(object):
 
         # get bilstm encodings
         cur_batch_size = tf.shape(self.p)[0];
-        #q_seq_len = tf.fill(tf.expand_dims(cur_batch_size, 0),
-        #                    tf.constant(Q,
-        #                                dtype=tf.int64))  # np.ones(B) * self.QMAXLEN #tf.placeholder(tf.int32, [None])
-        #p_seq_len = tf.fill(tf.expand_dims(cur_batch_size, 0),
-        #                    tf.constant(P,
-        #                                dtype=tf.int64))  # np.ones(B) * self.PMAXLEN #tf.placeholder(tf.int32, [None])
 
         p_seq_len =  tf.reduce_sum(self.p_mask, axis=1)
-
         q_seq_len =  tf.reduce_sum(self.q_mask, axis=1)
 
         print(("type1", (self.p_emb).get_shape()))
@@ -208,9 +199,6 @@ class QASystem(object):
         biLayer = True
 
         seq_len_final =  tf.reduce_sum(self.p_mask, axis=1)
-        #seq_len_final = tf.fill(tf.expand_dims(cur_batch_size, 0),
-        #                    tf.constant(P,
-        #                                dtype=tf.int64)) #tf.placeholder(tf.int32, [None])
         cell_final = self.cell(dim_att, state_is_tuple=True)
         if biLayer:
             out_lstm, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell_final, cell_bw=cell_final,
@@ -310,9 +298,6 @@ class QASystem(object):
 
             # Aggregation layer
             cur_batch_size = tf.shape(self.p)[0];
-            #p_seq_len = tf.fill(tf.expand_dims(cur_batch_size, 0),
-            #                    tf.constant(P, dtype=tf.int64))
-
             p_seq_len =  tf.reduce_sum(self.p_mask, axis=1)
 
             with tf.variable_scope("mix"):
