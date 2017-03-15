@@ -17,14 +17,15 @@ from keras.preprocessing.sequence import pad_sequences
 
 from qa_data import PAD_ID
 
+
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_float("learning_rate", 0.0001, "Learning rate.")
-tf.app.flags.DEFINE_float("dropout", 0.2, "Fraction of units randomly dropped on non-recurrent connections.")
-tf.app.flags.DEFINE_integer("batch_size", 32, "Batch size to use during training.")
+tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
+tf.app.flags.DEFINE_float("dropout", 0.1, "Fraction of units randomly dropped on non-recurrent connections.")
+tf.app.flags.DEFINE_integer("batch_size", 20, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
 tf.app.flags.DEFINE_string("data_dir", "data/squad", "SQuAD directory (default ./data/squad)")
@@ -36,7 +37,7 @@ tf.app.flags.DEFINE_string("embed_path", "", "Path to the trimmed GLoVe embeddin
 
 tf.app.flags.DEFINE_integer("QMAXLEN", 60, "Max Question Length")
 tf.app.flags.DEFINE_integer("PMAXLEN", 400, "Max Context Paragraph Length") # max is 766 but 99.98% have <400
-tf.app.flags.DEFINE_integer("lstm_units", 100, "Number of lstm representation h_i")
+tf.app.flags.DEFINE_integer("hidden_size", 200, "size of hidden layer h_i")
 tf.app.flags.DEFINE_integer("perspective_units", 50, "Number of lstm representation h_i")
 tf.app.flags.DEFINE_bool("clip_gradients", True, "Do gradient clipping")
 tf.app.flags.DEFINE_bool("tiny_sample", False, "Work with tiny sample")
@@ -76,6 +77,13 @@ def initialize_vocab(vocab_path):
     else:
         raise ValueError("Vocabulary file %s not found.", vocab_path)
 
+def get_mask(vectors, max_length):
+    res = []
+    for vector in vectors:
+        trulen = len(vector)
+        padlen = max_length - trulen
+        res.append([1]*trulen + [0]*padlen)
+    return pad_sequences(res, maxlen=max_length, value=0, padding="post" )
 
 def main(_):
     if not os.path.exists(FLAGS.log_dir):
@@ -107,20 +115,24 @@ def main(_):
     # elif len > maxlen, truncate
     QMAXLEN = FLAGS.QMAXLEN
     PMAXLEN = FLAGS.PMAXLEN
-    Q_train = pad_sequences(Q_train, maxlen=QMAXLEN, value=PAD_ID, padding='post')
-    P_train = pad_sequences(P_train, maxlen=PMAXLEN, value=PAD_ID, padding='post')
-    A_start_train = pad_sequences(A_start_train, maxlen=PMAXLEN, value=0, padding='post')
-    A_end_train = pad_sequences(A_end_train, maxlen=PMAXLEN, value=0, padding='post')
-    train_data = zip(P_train, Q_train, P_len_train, Q_len_train, A_start_train, A_end_train, A_len_train, P_raw_train, A_raw_train)
+    Q_mask_train = get_mask(Q_train, QMAXLEN)
+    P_mask_train = get_mask(P_train, PMAXLEN)
+    Q_train = pad_sequences(Q_train, maxlen=QMAXLEN, value=PAD_ID, padding="post")
+    P_train = pad_sequences(P_train, maxlen=PMAXLEN, value=PAD_ID, padding="post")
+    A_start_train = pad_sequences(A_start_train, maxlen=PMAXLEN, value=0, padding="post")
+    A_end_train = pad_sequences(A_end_train, maxlen=PMAXLEN, value=0, padding="post")
+    train_data = zip(P_train, Q_train, P_len_train, Q_len_train, A_start_train, A_end_train, A_len_train,P_mask_train, Q_mask_train, P_raw_train, A_raw_train)
 
     # see the effect of padding
     # logger.info("After Padding: \n Q_train[0]: %s \n P_train[0]: %s \n A_start_train[0]: %s \n A_end_train[0]: %s" % (Q_train[0], P_train[0], A_start_train[0], A_end_train[0]))
     # repeat on dev and test set
-    Q_dev = pad_sequences(Q_dev, maxlen=QMAXLEN, value=PAD_ID, padding='post')
-    P_dev = pad_sequences(P_dev, maxlen=PMAXLEN, value=PAD_ID, padding='post')
-    A_start_dev = pad_sequences(A_start_dev, maxlen=PMAXLEN, value=0, padding='post')
-    A_end_dev = pad_sequences(A_end_dev, maxlen=PMAXLEN, value=0, padding='post')
-    dev_data = zip(P_dev, Q_dev, P_len_dev, Q_len_dev, A_start_dev, A_end_dev, A_len_dev,  P_raw_dev, A_raw_dev)
+    Q_mask_dev = get_mask(Q_dev, QMAXLEN)
+    P_mask_dev = get_mask(P_dev, PMAXLEN)
+    Q_dev = pad_sequences(Q_dev, maxlen=QMAXLEN, value=PAD_ID, padding="post")
+    P_dev = pad_sequences(P_dev, maxlen=PMAXLEN, value=PAD_ID, padding="post")
+    A_start_dev = pad_sequences(A_start_dev, maxlen=PMAXLEN, value=0, padding="post")
+    A_end_dev = pad_sequences(A_end_dev, maxlen=PMAXLEN, value=0, padding="post")
+    dev_data = zip(P_dev, Q_dev, P_len_dev, Q_len_dev, A_start_dev, A_end_dev, A_len_dev,P_mask_dev, Q_mask_dev, P_raw_dev, A_raw_dev)
 
 
     global_train_dir = '/tmp/cs224n-squad-train'
