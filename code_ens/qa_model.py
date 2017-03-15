@@ -16,7 +16,18 @@ from evaluate import exact_match_score, f1_score
 from evaluate import evaluate
 
 
-logging.basicConfig(level=logging.INFO)
+#logging.basicConfig(level=logging.INFO)
+
+logging.root.handlers = []
+logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO , filename='train.log')
+
+# set up logging to console
+console = logging.StreamHandler()
+console.setLevel(logging.ERROR)
+# set a format which is simpler for console use
+formatter = logging.Formatter('%(asctime)s : %(levelname)s : %(message)s')
+console.setFormatter(formatter)
+logging.getLogger("").addHandler(console)
 
 def get_optimizer(opt):
     if opt == "adam":
@@ -445,8 +456,8 @@ class QASystem(object):
                 continue
             loss, norm = self.train_on_batch(sess, *batch)
             #prog.update(i + 1, [("train loss", loss)])
-            print("train loss: {}".format(loss))
-            print("train norm: {}".format(norm))
+            logging.info("train loss: {}".format(loss))
+            logging.info("train norm: {}".format(norm))
         print("")
 
         logging.info("Evaluating on development data")
