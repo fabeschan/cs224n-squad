@@ -51,8 +51,6 @@ tf.app.flags.DEFINE_float("span_l2", 0.0001, "Span l2 loss regularization consta
 FLAGS = tf.app.flags.FLAGS
 
 # Define globals here
-
-
 def initialize_model(session, model, train_dir):
     ckpt = tf.train.get_checkpoint_state(train_dir)
     v2_path = ckpt.model_checkpoint_path + ".index" if ckpt else ""
@@ -77,8 +75,6 @@ def initialize_vocab(vocab_path):
         return vocab, rev_vocab
     else:
         raise ValueError("Vocabulary file %s not found.", vocab_path)
-
-
 
 def pad_sequences(sequences, maxlen=None, dtype='int32',
                   padding='pre', truncating='pre', value=0.):
@@ -128,9 +124,6 @@ def pad_sequences(sequences, maxlen=None, dtype='int32',
         else:
             raise ValueError('Padding type "%s" not understood' % padding)
     return x
-
-
-
 
 def get_mask(vectors, max_length):
     res = []

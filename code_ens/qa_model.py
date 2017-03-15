@@ -67,15 +67,6 @@ class QASystem(object):
             grads_and_vars = zip(gradients, variables)
             self.train_op = optimizer.apply_gradients(grads_and_vars)
 
-    ############## TARUN'S SETUP_SYSTEM #####################
-    def test_softmax(self):
-        a = tf.constant(np.array([[[.1, .3, .5, .9], [0, 0, 0, 0]], [[.1, .3, .5, .9], [0, 0, 0, 0]]]))
-        with tf.Session() as s:
-            s.run(tf.nn.softmax(a, dim=1))
-        # this should be column-wise per example in batch
-
-            # ref: https://piazza.com/class/iw9g8b9yxp46s8?cid=2106 for example attention mechanism
-
     # http://www.aclweb.org/anthology/D15-1166
     def attention_layer(self, pp, qq):
         # pp is B-by-PMAXLEN-by-2h_dim, qq is B-by-QMAXLEN-by-2h_dim
@@ -99,7 +90,6 @@ class QASystem(object):
         cp = tf.matmul(tf.transpose(qq, perm = [0, 2, 1]), alphap) # paragraph-context vector
         # Now produce the context vector c for question words
         cq = tf.matmul(tf.transpose(pp, perm = [0, 2, 1]), alphaq) # quesiton-context vector
-
 
         # Add filter layer
         filterLayer = False
@@ -150,7 +140,7 @@ class QASystem(object):
         self.dropout = tf.placeholder(tf.float32, shape=())
 
         # add embeddings for question and paragraph
-        self.embedding_mat = tf.constant(self.pretrained_embeddings, name="pre", dtype=tf.float32)
+        self.embedding_mat = tf.Variable(self.pretrained_embeddings, name="pre", dtype=tf.float32)
         # https://www.tensorflow.org/api_docs/python/tf/nn/embedding_lookup
         self.q_emb = tf.cast(tf.nn.embedding_lookup(self.embedding_mat, self.q),
                              dtype=tf.float32)  # perhaps B-by-Q-by-d
@@ -362,8 +352,6 @@ class QASystem(object):
         self.yp_start = tf.multiply(self.yp_start_1, self.yp_start_2)
         self.yp_end = tf.multiply(self.yp_end_1, self.yp_end_2)
 
-
-
     def setup_loss(self):
         """
         Set up your loss computation here
@@ -378,7 +366,6 @@ class QASystem(object):
             self.loss_end = (tf.reduce_mean(
                 tf.nn.softmax_cross_entropy_with_logits(logits = self.logits_end, labels = tf.cast(self.a_end, tf.float32))))
             self.loss = tf.add(self.loss_start, self.loss_end)
-
 
     def evaluate_answer(self, session, Q_dev, P_dev, A_start_dev, A_end_dev, sample=100, log=False):
         """
@@ -456,8 +443,7 @@ class QASystem(object):
                 continue
             loss, norm = self.train_on_batch(sess, *batch)
             #prog.update(i + 1, [("train loss", loss)])
-            logging.info("train loss: {}".format(loss))
-            logging.info("train norm: {}".format(norm))
+            logging.info("train loss: {}, norm: {}".format(loss, norm))
         print("")
 
         logging.info("Evaluating on development data")
@@ -511,12 +497,6 @@ class QASystem(object):
         :return:
         """
 
-        # some free code to print out number of parameters in your model
-        # it's always good to check!
-        # you will also want to save your model parameters in self.train_dir
-        # so that you can use your trained model to make predictions, or
-        # even continue training
-
         tic = time.time()
         params = tf.trainable_variables()
         num_params = sum(map(lambda t: np.prod(tf.shape(t.value()).eval()), params))
@@ -529,31 +509,6 @@ class QASystem(object):
 
         best_score = 0.
 
-        '''
-        Proposed data format to be fed in, for each sample:
-        context:
-            [3,10,35,1,0,0,0,0]
-            padded with 0s at the end, integers represent indexes into vocabulary
-            max_context_size is the length
-        context_mask:
-            [True,True,True,True,False,False,False,False]
-        question:
-            [1,3,0,0]
-            padded with 0s at the end, integers represend indexes into vocabulary
-            max_question_size is the length of the list
-        question_mask:
-            [True,True,False,False]
-        label_start:
-            [1,0,0,0,0,0,0,0] - hot vector of length max_context_size
-        label_end
-            [0,0,0,0,1,0,0,0] - hot vector of length max_context_size
-
-        train_examples will be a list of tuples of form:
-        (context, context_mask, question, question_mask, label_start, label_end)
-
-        embeddings matrix will be a matrix of vocabulary_size x number of word features
-        '''
-
         for epoch in range(self.FLAGS.epochs):
             logging.info("Epoch %d out of %d", epoch + 1, self.FLAGS.epochs)
             score = self.run_epoch(session, train_data, dev_data)
@@ -565,7 +520,4 @@ class QASystem(object):
             print("")
         logging.info("Best f1 score detected this run : %s ", best_score)
         return best_score
-
-
-
 
