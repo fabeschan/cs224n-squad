@@ -74,15 +74,15 @@ class QASystem(object):
         # i.e. use dot-product scoring
         s = tf.matmul(qq, tf.transpose(pp, perm=[0, 2,
                                                  1]))  # much more complexity needed here (for example softmax scaling etc.)
-        s_max = tf.reduce_max(s, axis = 1, keep_dims  = True)
-        s_min= tf.reduce_min(s, axis = 1, keep_dims  = True)
-        s_mean = tf.reduce_mean(s, axis = 1, keep_dims  = True)
+        s_max = tf.reduce_max(s, axis = 1, keep_dims=True)
+        s_min= tf.reduce_min(s, axis = 1, keep_dims=True)
+        s_mean = tf.reduce_mean(s, axis = 1, keep_dims=True)
         s_enrich = tf.concat([s_max, s_min, s_mean], 1)
 
         # print(s.get_shape())
-        alphap = tf.nn.softmax(s, dim = 1) # should be column-wise as sum(alpha_i) per paragraph-word is 1
+        alphap = tf.nn.softmax(s, dim=1) # should be column-wise as sum(alpha_i) per paragraph-word is 1
         # Q*P
-        alphaq = tf.nn.softmax(tf.transpose(s, perm = [0,2,1]), dim = 1) # should be column-wise as sum(alpha_i) per question-word is 1
+        alphaq = tf.nn.softmax(tf.transpose(s, perm=[0,2,1]), dim=1) # should be column-wise as sum(alpha_i) per question-word is 1
         # P*Q
 
         #print(alpha.get_shape()); print(qq.get_shape())
@@ -102,10 +102,10 @@ class QASystem(object):
         else:
             p_emb_p = pp
 
-        q_concat = tf.concat([cq, tf.transpose(qq, perm = [0, 2, 1])], 1)
+        q_concat = tf.concat([cq, tf.transpose(qq, perm=[0, 2, 1])], 1)
 
         c_d = tf.matmul(q_concat, alphap) # 2h*p
-        p_concat = tf.concat([tf.transpose(p_emb_p, perm = [0, 2, 1]), c_d], 1)
+        p_concat = tf.concat([tf.transpose(p_emb_p, perm=[0, 2, 1]), c_d], 1)
 
         return p_concat #tf.concat([s, s_enrich, tf.transpose(p_emb_p, perm = [0, 2, 1]) ], 1) #c, tf.transpose(pp, perm = [0, 2, 1]),
 
@@ -123,7 +123,6 @@ class QASystem(object):
 
         #define CELL
         self.cell = tf.contrib.rnn.BasicLSTMCell
-
 
         # define placeholders
         self.q = tf.placeholder(tf.int32, [None, self.QMAXLEN], name="question")
@@ -147,12 +146,10 @@ class QASystem(object):
                              dtype=tf.float32)  # perhaps B-by-P-by-d
         #self.p_emb = tf.nn.dropout(self.p_emb, self.dropout)
 
-        # print stuff to understand appropriate dims
-        # pick out an LSTM cell
-        cell_p_fwd =self.cell(h_dim, state_is_tuple=True)
-        cell_q_fwd =self.cell(h_dim, state_is_tuple=True)
-        cell_p_bwd =self.cell(h_dim, state_is_tuple=True)
-        cell_q_bwd =self.cell(h_dim, state_is_tuple=True)
+        cell_p_fwd = self.cell(h_dim, state_is_tuple=True)
+        cell_q_fwd = self.cell(h_dim, state_is_tuple=True)
+        cell_p_bwd = self.cell(h_dim, state_is_tuple=True)
+        cell_q_bwd = self.cell(h_dim, state_is_tuple=True)
         cell_p_fwd = tf.contrib.rnn.DropoutWrapper(cell=cell_p_fwd, output_keep_prob=self.dropout)
         cell_q_fwd = tf.contrib.rnn.DropoutWrapper(cell=cell_q_fwd, output_keep_prob=self.dropout)
         cell_p_bwd = tf.contrib.rnn.DropoutWrapper(cell=cell_p_bwd, output_keep_prob=self.dropout)
@@ -161,8 +158,8 @@ class QASystem(object):
         # get bilstm encodings
         cur_batch_size = tf.shape(self.p)[0];
 
-        p_seq_len =  tf.reduce_sum(self.p_mask, axis=1)
-        q_seq_len =  tf.reduce_sum(self.q_mask, axis=1)
+        p_seq_len = tf.reduce_sum(self.p_mask, axis=1)
+        q_seq_len = tf.reduce_sum(self.q_mask, axis=1)
 
         print(("type1", (self.p_emb).get_shape()))
         # build the hidden representation for the question (fwd and bwd and stack them together)
@@ -265,11 +262,13 @@ class QASystem(object):
             W1 = tf.get_variable(
                 "W1",
                 shape=[1, 1, h_dim, l_dim],
-                initializer=tf.contrib.layers.xavier_initializer())
+                initializer=tf.contrib.layers.xavier_initializer()
+            )
             W2 = tf.get_variable(
                 "W2",
                 shape=[1, 1, h_dim, l_dim],
-                initializer=tf.contrib.layers.xavier_initializer())
+                initializer=tf.contrib.layers.xavier_initializer()
+            )
             output_p_fw = tf.expand_dims(output_p_fw, 3)
             tp1 = tf.nn.l2_normalize(tf.multiply(output_p_fw, W1), dim=2)
             qs1 = output_q_fw[:, Q - 1, :]
@@ -414,8 +413,7 @@ class QASystem(object):
         Returns:
             loss: loss over the batch (a scalar)
         """
-        feed = self.create_feed_dict(P, Q, P_len, Q_len,P_mask, Q_mask, A_start=A_start, A_end=A_end, A_len = A_len,
-                                     dropout=(1.0 - self.FLAGS.dropout))
+        feed = self.create_feed_dict(P, Q, P_len, Q_len,P_mask, Q_mask, A_start=A_start, A_end=A_end, A_len=A_len, dropout=(1.0 - self.FLAGS.dropout))
         _, loss, norm = sess.run([self.train_op, self.loss, self.grad_norm], feed_dict=feed)
         return loss, norm
 
@@ -439,7 +437,7 @@ class QASystem(object):
             if len(batch[0]) != self.batch_size:
                 continue
             # Only use P and Q
-            batch_pred = batch[:4]+ batch[7:9]
+            batch_pred = batch[:4] + batch[7:9]
             (ys, ye) = self.predict_on_batch(sess, *batch_pred)
             a_s = np.argmax(ys, axis=1)
             a_e = np.argmax(ye, axis=1)
