@@ -13,7 +13,8 @@ import numpy as np
 
 # for load, pad data
 from reader import load_data
-from keras.preprocessing.sequence import pad_sequences
+#from keras.preprocessing.sequence import pad_sequences
+#avoid keras = > causing GPU problem
 
 from qa_data import PAD_ID
 
@@ -76,6 +77,9 @@ def initialize_vocab(vocab_path):
         return vocab, rev_vocab
     else:
         raise ValueError("Vocabulary file %s not found.", vocab_path)
+
+
+
 
 def get_mask(vectors, max_length):
     res = []
