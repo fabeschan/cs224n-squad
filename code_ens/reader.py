@@ -24,6 +24,10 @@ def load_data(data_dir, data_subset):
             A_raw.append(line)
     return Q, P, A_start, A_end, A_len, P_raw, A_raw, Q_len, P_len
 
+def load_dataset(*filenames):
+    res = [ [] for i in range(len(filenames)) ]
+
+
 
 def load_data_home(path):
     Q, P, A_start, A_end, P_raw, A_raw, Q_len, P_len, A_len= [], [], [], [], [], [], [], [], []

@@ -129,9 +129,6 @@ class QASystem(object):
         self.p = tf.placeholder(tf.int32, [None, self.PMAXLEN], name="context_paragraph")
         self.a_start = tf.placeholder(tf.int32, [None], name="answer_start")
         self.a_end = tf.placeholder(tf.int32, [None], name="answer_end")
-        self.a_len = tf.placeholder(tf.int32, [None], name="answer_length")
-        self.q_len = tf.placeholder(tf.int32, [None], name="q_len")
-        self.p_len = tf.placeholder(tf.int32, [None], name="p_len")
         self.p_mask = tf.placeholder(tf.int32, [None, self.PMAXLEN], name="paragraph_mask")
         self.q_mask = tf.placeholder(tf.int32, [None, self.QMAXLEN], name = "question_mask")
         self.dropout = tf.placeholder(tf.float32, shape=())
@@ -352,21 +349,8 @@ class QASystem(object):
             # compute span l2 loss
             a_s_p = tf.argmax(self.yp_start, axis=1)
             a_e_p = tf.argmax(self.yp_end, axis=1)
-            self.loss_span = tf.reduce_mean(tf.nn.l2_loss( tf.cast(self.a_len, tf.float32)  - tf.cast(a_s_p - a_e_p, tf.float32)))
+            self.loss_span = tf.reduce_mean(tf.nn.l2_loss(tf.cast(self.a_end - self.a_start + 1, tf.float32) - tf.cast(a_s_p - a_e_p, tf.float32)))
             self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + self.FLAGS.span_l2*self.loss_span
-
-    def setup_loss(self):
-        """
-        Set up your loss computation here
-        :return:
-        """
-
-        # may need to do some reshaping here
-        # Someone replaced yp_start with logits_start in loss. Don't really follow the change. Setting it back to original.
-        with vs.variable_scope("loss"):
-            self.loss_start = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_start, labels = self.a_start))
-            self.loss_end = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_end, labels = self.a_end))
-            self.loss = tf.add(self.loss_start, self.loss_end)
 
     def evaluate_answer(self, session, Q_dev, P_dev, A_start_dev, A_end_dev, sample=100, log=False):
         """
@@ -397,30 +381,26 @@ class QASystem(object):
 
         return f1, em
 
-    def create_feed_dict(self, P, Q, P_len, Q_len,P_mask, Q_mask, A_start=None, A_end=None, A_len = None, dropout=1.0):
+    def create_feed_dict(self, P, Q, P_mask, Q_mask, A_start=None, A_end=None, dropout=1.0):
         feed_dict = {
             self.p_mask: P_mask,
             self.q_mask: Q_mask,
             self.p: P,
             self.q: Q,
-            self.p_len: P_len,
-            self.q_len: Q_len,
             self.dropout: dropout,
         }
         if A_start is not None:
             feed_dict[self.a_start] = A_start
         if A_end is not None:
             feed_dict[self.a_end] = A_end
-        if A_len is not None:
-            feed_dict[self.a_len] = A_len
         return feed_dict
 
-    def predict_on_batch(self, sess, P, Q, P_len, Q_len, P_mask, Q_mask):
-        feed = self.create_feed_dict(P, Q, P_len, Q_len, P_mask, Q_mask)
+    def predict_on_batch(self, sess, P, Q, P_mask, Q_mask):
+        feed = self.create_feed_dict(P, Q, P_mask, Q_mask)
         (yp_start, yp_end) = sess.run([self.yp_start, self.yp_end], feed_dict=feed)
         return (yp_start, yp_end)
 
-    def train_on_batch(self, sess, P, Q, P_len, Q_len, A_start, A_end, A_len, P_mask, Q_mask):
+    def train_on_batch(self, sess, P, Q, A_start, A_end, P_mask, Q_mask):
         """Perform one step of gradient descent on the provided batch of data.
 
         Args:
@@ -430,7 +410,7 @@ class QASystem(object):
         Returns:
             loss: loss over the batch (a scalar)
         """
-        feed = self.create_feed_dict(P, Q, P_len, Q_len,P_mask, Q_mask, A_start=A_start, A_end=A_end, A_len=A_len, dropout=(1.0 - self.FLAGS.dropout))
+        feed = self.create_feed_dict(P, Q, P_mask, Q_mask, A_start=A_start, A_end=A_end, dropout=(1.0 - self.FLAGS.dropout))
         _, loss, norm = sess.run([self.train_op, self.loss, self.grad_norm], feed_dict=feed)
         return loss, norm
 
@@ -438,7 +418,7 @@ class QASystem(object):
         prog = Progbar(target=1 + int(len(train_examples) / self.batch_size))
         for i, batch in enumerate(minibatches(train_examples, self.batch_size)):
             # TODO we need to remove this. Make sure your model works with variable batch sizes
-            batch = batch[:9]
+            batch = batch[:6]
             if len(batch[0]) != self.batch_size:
                 continue
             loss, norm = self.train_on_batch(sess, *batch)
@@ -454,13 +434,13 @@ class QASystem(object):
             if len(batch[0]) != self.batch_size:
                 continue
             # Only use P and Q
-            batch_pred = batch[:4] + batch[7:9]
+            batch_pred = batch[:2] + batch[4:6]
             (ys, ye) = self.predict_on_batch(sess, *batch_pred)
             a_s = np.argmax(ys, axis=1)
             a_e = np.argmax(ye, axis=1)
             for i in range(len(a_s)):
-                p_raw = batch[9][i]
-                a_raw = batch[10][i]
+                p_raw = batch[6][i]
+                a_raw = batch[7][i]
                 s = a_s[i]
                 e = a_e[i]
                 pred_raw = ' '.join(p_raw.split()[s:e+1])

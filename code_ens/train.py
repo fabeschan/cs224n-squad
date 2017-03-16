@@ -133,6 +133,26 @@ def get_mask(vectors, max_length):
         res.append([1]*trulen + [0]*padlen)
     return pad_sequences(res, maxlen=max_length, value=0, padding="post" )
 
+def load_dataset(*filenames):
+    num_lines = sum(1 for line in open(filenames[-1]))
+    def generate_batch(batchsize):
+        files = [open(f) for f in filenames]
+        batch = []
+        for i in range(num_lines):
+            example = []
+            for f in files:
+                int_list = [int(x) for x in f.readline().split()]
+                example.append(int_list)
+            batch.append(example)
+            if batchsize != -1:
+                if len(batch) == batchsize:
+                    yield batch, num_lines
+                    #return # for speed
+                    batch = []
+        if len(batch) > 0:
+            yield batch, num_lines
+    return generate_batch
+
 def main(_):
     if not os.path.exists(FLAGS.log_dir):
         os.makedirs(FLAGS.log_dir)
@@ -169,7 +189,7 @@ def main(_):
     P_train = pad_sequences(P_train, maxlen=PMAXLEN, value=PAD_ID, padding="post")
     #A_start_train = pad_sequences(A_start_train, maxlen=PMAXLEN, value=0, padding="post")
     #A_end_train = pad_sequences(A_end_train, maxlen=PMAXLEN, value=0, padding="post")
-    train_data = zip(P_train, Q_train, P_len_train, Q_len_train, A_start_train, A_end_train, A_len_train,P_mask_train, Q_mask_train, P_raw_train, A_raw_train)
+    train_data = zip(P_train, Q_train, A_start_train, A_end_train, P_mask_train, Q_mask_train, P_raw_train, A_raw_train)
 
     # see the effect of padding
     # logger.info("After Padding: \n Q_train[0]: %s \n P_train[0]: %s \n A_start_train[0]: %s \n A_end_train[0]: %s" % (Q_train[0], P_train[0], A_start_train[0], A_end_train[0]))
@@ -180,7 +200,7 @@ def main(_):
     P_dev = pad_sequences(P_dev, maxlen=PMAXLEN, value=PAD_ID, padding="post")
     #A_start_dev = pad_sequences(A_start_dev, maxlen=PMAXLEN, value=0, padding="post")
     #A_end_dev = pad_sequences(A_end_dev, maxlen=PMAXLEN, value=0, padding="post")
-    dev_data = zip(P_dev, Q_dev, P_len_dev, Q_len_dev, A_start_dev, A_end_dev, A_len_dev,P_mask_dev, Q_mask_dev, P_raw_dev, A_raw_dev)
+    dev_data = zip(P_dev, Q_dev, A_start_dev, A_end_dev, P_mask_dev, Q_mask_dev, P_raw_dev, A_raw_dev)
 
 
     global_train_dir = '/tmp/cs224n-squad-train'
