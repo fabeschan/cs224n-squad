@@ -37,7 +37,7 @@ tf.app.flags.DEFINE_string("vocab_path", "data/squad/vocab.dat", "Path to vocab 
 tf.app.flags.DEFINE_string("embed_path", "", "Path to the trimmed GLoVe embedding (default: ./data/squad/glove.trimmed.{vocab_dim}.npz)")
 
 tf.app.flags.DEFINE_integer("QMAXLEN", 60, "Max Question Length")
-tf.app.flags.DEFINE_integer("PMAXLEN", 400, "Max Context Paragraph Length") # max is 766 but 99.98% have <400
+tf.app.flags.DEFINE_integer("PMAXLEN", 766, "Max Context Paragraph Length")
 tf.app.flags.DEFINE_integer("hidden_size", 200, "size of hidden layer h_i")
 tf.app.flags.DEFINE_integer("perspective_units", 50, "Number of lstm representation h_i")
 tf.app.flags.DEFINE_bool("clip_gradients", True, "Do gradient clipping")
@@ -168,8 +168,8 @@ def main(_):
 
 
     # load data sets
-    Q_train, P_train, A_start_train, A_end_train, A_len_train, P_raw_train, A_raw_train, Q_len_train, P_len_train = load_data(FLAGS.data_dir, "val")
-    Q_dev, P_dev, A_start_dev, A_end_dev, A_len_dev, P_raw_dev, A_raw_dev, Q_len_dev, P_len_dev = load_data(FLAGS.data_dir, "val")
+    Q_train, P_train, A_start_train, A_end_train = load_data(FLAGS.data_dir, "val")
+    Q_dev, P_dev, A_start_dev, A_end_dev = load_data(FLAGS.data_dir, "val")
     #Q_test, P_test, A_start_test, A_end_test = load_data(FLAGS.data_dir, "test")
 
     # see some data
@@ -187,9 +187,7 @@ def main(_):
     P_mask_train = get_mask(P_train, PMAXLEN)
     Q_train = pad_sequences(Q_train, maxlen=QMAXLEN, value=PAD_ID, padding="post")
     P_train = pad_sequences(P_train, maxlen=PMAXLEN, value=PAD_ID, padding="post")
-    #A_start_train = pad_sequences(A_start_train, maxlen=PMAXLEN, value=0, padding="post")
-    #A_end_train = pad_sequences(A_end_train, maxlen=PMAXLEN, value=0, padding="post")
-    train_data = zip(P_train, Q_train, A_start_train, A_end_train, P_mask_train, Q_mask_train, P_raw_train, A_raw_train)
+    train_data = zip(P_train, Q_train, A_start_train, A_end_train)
 
     # see the effect of padding
     # logger.info("After Padding: \n Q_train[0]: %s \n P_train[0]: %s \n A_start_train[0]: %s \n A_end_train[0]: %s" % (Q_train[0], P_train[0], A_start_train[0], A_end_train[0]))
@@ -198,9 +196,7 @@ def main(_):
     P_mask_dev = get_mask(P_dev, PMAXLEN)
     Q_dev = pad_sequences(Q_dev, maxlen=QMAXLEN, value=PAD_ID, padding="post")
     P_dev = pad_sequences(P_dev, maxlen=PMAXLEN, value=PAD_ID, padding="post")
-    #A_start_dev = pad_sequences(A_start_dev, maxlen=PMAXLEN, value=0, padding="post")
-    #A_end_dev = pad_sequences(A_end_dev, maxlen=PMAXLEN, value=0, padding="post")
-    dev_data = zip(P_dev, Q_dev, A_start_dev, A_end_dev, P_mask_dev, Q_mask_dev, P_raw_dev, A_raw_dev)
+    dev_data = zip(P_dev, Q_dev, A_start_dev, A_end_dev)
 
 
     global_train_dir = '/tmp/cs224n-squad-train'
