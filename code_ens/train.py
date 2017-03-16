@@ -36,8 +36,8 @@ tf.app.flags.DEFINE_string("optimizer", "adam", "adam / sgd")
 tf.app.flags.DEFINE_string("vocab_path", "data/squad/vocab.dat", "Path to vocab file (default: ./data/squad/vocab.dat)")
 tf.app.flags.DEFINE_string("embed_path", "", "Path to the trimmed GLoVe embedding (default: ./data/squad/glove.trimmed.{vocab_dim}.npz)")
 
-tf.app.flags.DEFINE_integer("QMAXLEN", 60, "Max Question Length")
-tf.app.flags.DEFINE_integer("PMAXLEN", 766, "Max Context Paragraph Length")
+tf.app.flags.DEFINE_integer("question_size", 60, "Max Question Length")
+tf.app.flags.DEFINE_integer("paragraph_size", 766, "Max Context Paragraph Length")
 tf.app.flags.DEFINE_integer("hidden_size", 200, "size of hidden layer h_i")
 tf.app.flags.DEFINE_integer("perspective_units", 50, "Number of lstm representation h_i")
 tf.app.flags.DEFINE_bool("clip_gradients", True, "Do gradient clipping")
@@ -243,3 +243,5 @@ def main(_):
 
 if __name__ == "__main__":
     tf.app.run()
+
+

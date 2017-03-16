@@ -16,18 +16,24 @@ from evaluate import exact_match_score, f1_score
 from evaluate import evaluate
 
 
-#logging.basicConfig(level=logging.INFO)
-
+# Setup logging (to console and to file)
 logging.root.handlers = []
 logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO , filename='info.log')
-
-# set up logging to console
 console = logging.StreamHandler()
 console.setLevel(logging.INFO)
-# set a format which is simpler for console use
 formatter = logging.Formatter('%(asctime)s : %(levelname)s : %(message)s')
 console.setFormatter(formatter)
 logging.getLogger("").addHandler(console)
+
+class Timer(object):
+    def __enter__(self, name="unnamed"):
+        self.start = time.clock()
+        return self
+
+    def __exit__(self, *args):
+        self.end = time.clock()
+        self.interval = self.end - self.start
+        logging.info("Timer: [{}] took {}s to run".format(self.interval))
 
 def get_optimizer(opt):
     if opt == "adam":
@@ -40,40 +46,30 @@ def get_optimizer(opt):
 
 class QASystem(object):
     def __init__(self, FLAGS, pretrained_embeddings, vocab_dim, *args):
-        self.train_dir = FLAGS.train_dir
-        self.pretrained_embeddings = pretrained_embeddings
+        #self.train_dir = FLAGS.train_dir
+        #self.pretrained_embeddings = pretrained_embeddings
 
-        self.FLAGS = FLAGS
-        self.batch_size = FLAGS.batch_size
-        self.QMAXLEN = FLAGS.QMAXLEN
-        self.PMAXLEN = FLAGS.PMAXLEN
-        self.embedding_size = FLAGS.embedding_size # length of word-vectors
-        self.hidden_size = FLAGS.hidden_size
         self.vocab_dim = vocab_dim
         self.pretrained_embeddings = pretrained_embeddings
-        self.model_output = self.FLAGS.train_dir + "/model.weights"
+        self.model_output = FLAGS.train_dir + "/model.weights"
+        self.initializer = tf.contrib.layers.xavier_initializer()
 
-        with tf.variable_scope("qa", initializer=tf.uniform_unit_scaling_initializer(1.0)):
-            self.setup_system_ensemble()
-            self.setup_loss_enriched_ensemble()
-            optimizer = get_optimizer(self.FLAGS.optimizer)(self.FLAGS.learning_rate) #.minimize(self.loss)
-            variables = tf.trainable_variables()
-            print([v.name for v in variables])
-            gradients = optimizer.compute_gradients(self.loss, variables)
-            gradients = [tup[0] for tup in gradients]
-            if FLAGS.clip_gradients:
-                gradients, norms = tf.clip_by_global_norm(gradients, FLAGS.max_gradient_norm)
-            self.grad_norm = tf.global_norm(gradients)
-            grads_and_vars = zip(gradients, variables)
-            self.train_op = optimizer.apply_gradients(grads_and_vars)
+        with Timer("setup graph"):
+            with tf.variable_scope("qa", initializer=tf.uniform_unit_scaling_initializer(1.0)):
+                self.setup_system()
+                self.setup_loss()
+                self.setup_optimizer()
 
     # http://www.aclweb.org/anthology/D15-1166
-    def attention_layer(self, pp, qq):
-        # pp is B-by-PMAXLEN-by-2h_dim, qq is B-by-QMAXLEN-by-2h_dim
+    def setup_attention_layer(self, pp, qq):
+                #h_dim = self.hidden_size
+        #h_dim = self.hidden_size
+        #h_dim = self.hidden_size
+        #h_dim = self.hidden_size
+        # pp is B-by-PMAXLEN-by-2h_dim, qq is B-by-QMAXLEN-by-2hdim
         # below will return B-by-QMAXLEN-by-PMAXLEN
         # i.e. use dot-product scoring
-        s = tf.matmul(qq, tf.transpose(pp, perm=[0, 2,
-                                                 1]))  # much more complexity needed here (for example softmax scaling etc.)
+        s = tf.matmul(qq, tf.transpose(pp, perm=[0, 2, 1]))  # much more complexity needed here (for example softmax scaling etc.)
         s_max = tf.reduce_max(s, axis = 1, keep_dims=True)
         s_min= tf.reduce_min(s, axis = 1, keep_dims=True)
         s_mean = tf.reduce_mean(s, axis = 1, keep_dims=True)
@@ -109,51 +105,51 @@ class QASystem(object):
 
         return p_concat #tf.concat([s, s_enrich, tf.transpose(p_emb_p, perm = [0, 2, 1]) ], 1) #c, tf.transpose(pp, perm = [0, 2, 1]),
 
+    def setup_placeholder(self):
+        self.dropout = tf.placeholder(tf.float32, shape=())
+        self.q = tf.placeholder(tf.int32, [None, FLAGS.question_size], name="question")
+        self.p = tf.placeholder(tf.int32, [None, FLAGS.paragraph_size], name="paragraph")
+        self.a_s = tf.placeholder(tf.int32, [None], name="answer_start")
+        self.a_e = tf.placeholder(tf.int32, [None], name="answer_end")
+        self.p_mask = tf.placeholder(tf.int32, [None, FLAGS.paragraph_size], name="paragraph_mask")
+        self.q_mask = tf.placeholder(tf.int32, [None, FLAGS.question_size], name = "question_mask")
 
-############## MPCM + COATT ENSEMBLE #####################
-    def setup_system_ensemble(self):
-        # define some dimensions (everything is padded)
-        Q = self.QMAXLEN  # maxlength of questions
-        P = self.PMAXLEN  # maxlength of context paragraphs
-        A_start = self.PMAXLEN  # maxlength of one-hot vector for  start-index
-        A_end = self.PMAXLEN  # maxlength of one-hot vector for  end-index
-        V, d = self.vocab_dim, self.embedding_size  # |V|, d i.e. V words and each word-vec is d-dimensional
-        h_dim = self.hidden_size
-        l_dim = self.FLAGS.perspective_units
+    def setup_optimizer(self):
+        optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate) #.minimize(self.loss)
+        variables = tf.trainable_variables()
+        #print([v.name for v in variables])
+        gradients = optimizer.compute_gradients(self.loss, variables)
+        gradients = [tup[0] for tup in gradients]
+        if FLAGS.clip_gradients:
+            gradients, norms = tf.clip_by_global_norm(gradients, FLAGS.max_gradient_norm)
+        self.grad_norm = tf.global_norm(gradients)
+        grads_and_vars = zip(gradients, variables)
+        self.train_op = optimizer.apply_gradients(grads_and_vars)
+
+    def setup_system(self):
+        ''' MPCM + COATT '''
+        l_dim = FLAGS.perspective_units
 
         #define CELL
         self.cell = tf.contrib.rnn.BasicLSTMCell
 
-        # define placeholders
-        self.q = tf.placeholder(tf.int32, [None, self.QMAXLEN], name="question")
-        self.p = tf.placeholder(tf.int32, [None, self.PMAXLEN], name="context_paragraph")
-        self.a_start = tf.placeholder(tf.int32, [None], name="answer_start")
-        self.a_end = tf.placeholder(tf.int32, [None], name="answer_end")
-        self.p_mask = tf.placeholder(tf.int32, [None, self.PMAXLEN], name="paragraph_mask")
-        self.q_mask = tf.placeholder(tf.int32, [None, self.QMAXLEN], name = "question_mask")
-        self.dropout = tf.placeholder(tf.float32, shape=())
-
         # add embeddings for question and paragraph
         self.embedding_mat = tf.Variable(self.pretrained_embeddings, name="pre", dtype=tf.float32)
         # https://www.tensorflow.org/api_docs/python/tf/nn/embedding_lookup
-        self.q_emb = tf.cast(tf.nn.embedding_lookup(self.embedding_mat, self.q),
-                             dtype=tf.float32)  # perhaps B-by-Q-by-d
-        #self.q_emb = tf.nn.dropout(self.q_emb, self.dropout)
-        self.p_emb = tf.cast(tf.nn.embedding_lookup(self.embedding_mat, self.p),
-                             dtype=tf.float32)  # perhaps B-by-P-by-d
-        #self.p_emb = tf.nn.dropout(self.p_emb, self.dropout)
+        self.q_emb = tf.cast(tf.nn.embedding_lookup(self.embedding_mat, self.q), dtype=tf.float32)  # perhaps B-by-Q-by-d
+        self.p_emb = tf.cast(tf.nn.embedding_lookup(self.embedding_mat, self.p), dtype=tf.float32)  # perhaps B-by-P-by-d
 
-        cell_p_fwd = self.cell(h_dim, state_is_tuple=True)
-        cell_q_fwd = self.cell(h_dim, state_is_tuple=True)
-        cell_p_bwd = self.cell(h_dim, state_is_tuple=True)
-        cell_q_bwd = self.cell(h_dim, state_is_tuple=True)
+        cell_p_fwd = self.cell(FLAGS.hidden_size, state_is_tuple=True)
+        cell_q_fwd = self.cell(FLAGS.hidden_size, state_is_tuple=True)
+        cell_p_bwd = self.cell(FLAGS.hidden_size, state_is_tuple=True)
+        cell_q_bwd = self.cell(FLAGS.hidden_size, state_is_tuple=True)
         cell_p_fwd = tf.contrib.rnn.DropoutWrapper(cell=cell_p_fwd, output_keep_prob=self.dropout)
         cell_q_fwd = tf.contrib.rnn.DropoutWrapper(cell=cell_q_fwd, output_keep_prob=self.dropout)
         cell_p_bwd = tf.contrib.rnn.DropoutWrapper(cell=cell_p_bwd, output_keep_prob=self.dropout)
         cell_q_bwd = tf.contrib.rnn.DropoutWrapper(cell=cell_q_bwd, output_keep_prob=self.dropout)
 
         # get bilstm encodings
-        cur_batch_size = tf.shape(self.p)[0];
+        cur_batch_size = tf.shape(self.p)[0]
 
         p_seq_len = tf.reduce_sum(self.p_mask, axis=1)
         q_seq_len = tf.reduce_sum(self.q_mask, axis=1)
@@ -161,48 +157,50 @@ class QASystem(object):
         print(("type1", (self.p_emb).get_shape()))
         # build the hidden representation for the question (fwd and bwd and stack them together)
         with tf.variable_scope("encode_q"):
-            (output_q_fw, output_q_bw), (output_state_fw_q, output_state_bw_q) = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell_q_fwd,
-                                                                                                cell_bw=cell_q_bwd,
-                                                                                                inputs=self.q_emb,
-                                                                                                sequence_length=q_seq_len,
-                                                                                                dtype=tf.float32)
+            (output_q_fw, output_q_bw), (output_state_fw_q, output_state_bw_q) = tf.nn.bidirectional_dynamic_rnn(
+                cell_fw=cell_q_fwd,
+                cell_bw=cell_q_bwd,
+                inputs=self.q_emb,
+                sequence_length=q_seq_len,
+                dtype=tf.float32
+            )
             self.qq = tf.concat([output_q_fw, output_q_bw], 2)  # 2h_dim dimensional representation over each word in question
             # self.qq = tf.reshape(output_state_fw_q, shape = [self.batch_size, 1, 2*h_dim]) + tf.reshape(output_state_bw_q, shape = [self.batch_size, 1, 2*h_dim])  # try only using "end representation"  as question summary vector
             print(("type11", (self.qq).get_shape()))
         with tf.variable_scope("encode_p"):
-            outputs_p, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell_p_fwd, cell_bw=cell_p_bwd,
-                                                           initial_state_fw=output_state_fw_q,
-                                                           inputs=self.p_emb, sequence_length=p_seq_len,
-                                                           dtype=tf.float32)
-            self.pp = tf.concat(outputs_p,
-                                2)  # 2h_dim dimensional representation over each word in context-paragraph
+            outputs_p, _ = tf.nn.bidirectional_dynamic_rnn(
+                cell_fw=cell_p_fwd,
+                cell_bw=cell_p_bwd,
+                initial_state_fw=output_state_fw_q,
+                inputs=self.p_emb,
+                sequence_length=p_seq_len,
+                dtype=tf.float32
+            )
+            self.pp = tf.concat(outputs_p, 2)  # 2h_dim dimensional representation over each word in context-paragraph
 
         # need to mix qq and pp to get an attention matrix (question-words)-by-(paragraph-words) dimensional heat-map like matrix for each example
         # this attention matrix will allow us to localize the interesting parts of the paragraph (they will peak) and help us identify the patch corresponding to answer
         # visually the patch will ideally start at start-index and decay near end-index
-        self.att = self.attention_layer(self.pp, self.qq)
+        self.att = self.setup_attention_layer(self.pp, self.qq)
 
         #  predictions obtain by applying softmax over something (attention vals - should be something like dim(question-words)-by-dim(paragraph)
         # currently a B-by-QMAXLEN-by-PMAXLEN tensor
-        dim_att = int(self.att.get_shape()[
-                          1])  # self.QMAXLEN # # first dim of something, second dim of soemthing should be self.AMAXLEN i.e. self.PMAXLEN i.e. attention computed for each word in paragraph
+        dim_att = int(self.att.get_shape()[1])  # self.QMAXLEN # # first dim of something, second dim of soemthing should be self.AMAXLEN i.e. self.PMAXLEN i.e. attention computed for each word in paragraph
 
         print(("type2", (self.att).get_shape()))
 
-        # apply another LSTM layer before softmax (choice of uni vs bi-directional)s
-        biLayer = True
-
-        seq_len_final =  tf.reduce_sum(self.p_mask, axis=1)
+        # apply another LSTM layer before softmax
+        seq_len_final = tf.reduce_sum(self.p_mask, axis=1)
         cell_final = self.cell(dim_att, state_is_tuple=True)
-        if biLayer:
-            out_lstm, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell_final, cell_bw=cell_final,
-                                                           inputs=tf.transpose(self.att, perm = [0, 2, 1]), sequence_length=seq_len_final, dtype=tf.float32)
-            lstm_final = tf.concat(out_lstm, 2)
-            #lstm_final = tf.transpose(, perm = [0, 2, 1])  # 2*2h_dim dimensional representation over each word in context-paragraph
-        else:
-            out_lstm, _ = (tf.nn.dynamic_rnn(cell=cell_final, inputs=tf.transpose(self.att, perm = [0, 2, 1]), dtype=tf.float32))
-            #lstm_final = tf.transpose(out_lstm, perm=[0, 2, 1])
-        print(lstm_final .get_shape())
+        out_lstm, _ = tf.nn.bidirectional_dynamic_rnn(
+            cell_fw=cell_final,
+            cell_bw=cell_final,
+            inputs=tf.transpose(self.att, perm = [0, 2, 1]),
+            sequence_length=seq_len_final, dtype=tf.float32
+        )
+        lstm_final = tf.concat(out_lstm, 2)
+        #lstm_final = tf.transpose(, perm = [0, 2, 1])  # 2*2h_dim dimensional representation over each word in context-paragraph
+        print(lstm_final.get_shape())
         #lstm_final = tf.transpose(self.att, perm=[0, 2, 1])
         lstm_final = tf.nn.dropout(lstm_final, self.dropout)
 
@@ -211,17 +209,14 @@ class QASystem(object):
         final_layer_ = tf.reshape(lstm_final, shape=[-1, dim_final_layer])
 
         # softmax layer
-        W_start = tf.get_variable("W_start", shape=[dim_final_layer, 1],
-                                  initializer=tf.contrib.layers.xavier_initializer())
-        b_start = tf.Variable(tf.zeros([self.PMAXLEN]))
-        self.logits_start_1 = (
-        tf.reshape(tf.matmul(final_layer_, W_start), shape=[cur_batch_size, self.PMAXLEN]) + b_start)
+        W_start = tf.get_variable("W_start", shape=[dim_final_layer, 1], initializer=self.initializer)
+        b_start = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
+        self.logits_start_1 = tf.reshape(tf.matmul(final_layer_, W_start), shape=[cur_batch_size, FLAGS.paragraph_size]) + b_start
         self.yp_start_1 = tf.nn.softmax(self.logits_start_1)
 
-        W_end = tf.get_variable("W_end", shape=[dim_final_layer, 1],
-                                initializer=tf.contrib.layers.xavier_initializer())
-        b_end = tf.Variable(tf.zeros([self.PMAXLEN]))
-        self.logits_end_1 = (tf.reshape(tf.matmul(final_layer_, W_end), shape=[cur_batch_size, self.PMAXLEN]) + b_end)
+        W_end = tf.get_variable("W_end", shape=[dim_final_layer, 1], initializer=self.initializer)
+        b_end = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
+        self.logits_end_1 = (tf.reshape(tf.matmul(final_layer_, W_end), shape=[cur_batch_size, FLAGS.paragraph_size]) + b_end)
         self.yp_end_1 = tf.nn.softmax(self.logits_end_1)
 
         # MPCM
@@ -242,7 +237,7 @@ class QASystem(object):
         self.q_emb = tf.nn.dropout(self.q_emb, self.dropout)
         self.p_emb_p = tf.nn.dropout(self.p_emb_p, self.dropout)
 
-        cell = self.cell(h_dim, state_is_tuple=True)
+        cell = self.cell(FLAGS.hidden_size, state_is_tuple=True)
         cell = tf.contrib.rnn.DropoutWrapper(cell=cell, output_keep_prob=self.dropout)
 
         # Context Representation Layer
@@ -253,22 +248,23 @@ class QASystem(object):
                 inputs=self.p_emb_p,
                 initial_state_fw=output_state_fw_q,
                 sequence_length=p_seq_len,
-                dtype=tf.float32)
+                dtype=tf.float32
+            )
 
             # Multi-perspective context matching layer
             W1 = tf.get_variable(
                 "W1",
-                shape=[1, 1, h_dim, l_dim],
+                shape=[1, 1, FLAGS.hidden_size, l_dim],
                 initializer=tf.contrib.layers.xavier_initializer()
             )
             W2 = tf.get_variable(
                 "W2",
-                shape=[1, 1, h_dim, l_dim],
+                shape=[1, 1, FLAGS.hidden_size, l_dim],
                 initializer=tf.contrib.layers.xavier_initializer()
             )
             output_p_fw = tf.expand_dims(output_p_fw, 3)
             tp1 = tf.nn.l2_normalize(tf.multiply(output_p_fw, W1), dim=2)
-            qs1 = output_q_fw[:, Q - 1, :]
+            qs1 = output_q_fw[:, FLAGS.qestion_size - 1, :]
             qs1 = tf.expand_dims(qs1, 1)
             qs1 = tf.expand_dims(qs1, 3)
             tq1 = tf.nn.l2_normalize(tf.multiply(qs1, W1), dim=2)
@@ -310,19 +306,17 @@ class QASystem(object):
 
             # Prediction layer
             # this should be replaced by a NN as in the paper later
-            W_start_ = tf.get_variable("W_start_", shape=[dim_final_layer, 1],
-                                      initializer=tf.contrib.layers.xavier_initializer())
-            b_start_ = tf.Variable(tf.zeros([P]))
+            W_start_ = tf.get_variable("W_start_", shape=[dim_final_layer, 1], initializer=tf.contrib.layers.xavier_initializer())
+            b_start_ = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
             mixed_start = tf.matmul(final_layer_, W_start_)
-            mixed_start = tf.reshape(mixed_start, shape=[-1, P])
+            mixed_start = tf.reshape(mixed_start, shape=[-1, FLAGS.paragraph])
             self.logits_start_2 = mixed_start + b_start_
             self.yp_start_2 = tf.nn.softmax(self.logits_start_2)
 
-            W_end_ = tf.get_variable("W_end_", shape=[dim_final_layer, 1],
-                                    initializer=tf.contrib.layers.xavier_initializer())
-            b_end_ = tf.Variable(tf.zeros([P]))
+            W_end_ = tf.get_variable("W_end_", shape=[dim_final_layer, 1], initializer=tf.contrib.layers.xavier_initializer())
+            b_end_ = tf.Variable(tf.zeros([FLAGS.paragraph]))
             mixed_end = tf.matmul(final_layer_, W_end_)
-            mixed_end = tf.reshape(mixed_end, shape=[-1, P])
+            mixed_end = tf.reshape(mixed_end, shape=[-1, FLAGS.paragraph])
 
         self.logits_end_2 = mixed_end + b_end_
         self.yp_end_2 = tf.nn.softmax(self.logits_end_2)
@@ -333,7 +327,7 @@ class QASystem(object):
         self.yp_start = tf.multiply(self.yp_start_1, self.yp_start_2)
         self.yp_end = tf.multiply(self.yp_end_1, self.yp_end_2)
 
-    def setup_loss_enriched_ensemble(self):
+    def setup_loss(self):
         """
         Set up your loss computation here
         :return:
@@ -342,37 +336,20 @@ class QASystem(object):
         # may need to do some reshaping here
         # Someone replaced yp_start with logits_start in loss. Don't really follow the change. Setting it back to original.
         with vs.variable_scope("loss"):
-            self.loss_start_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_start_1, labels = self.a_start))
-            self.loss_end_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_end_1, labels = self.a_end))
-            self.loss_start_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_start_2, labels = self.a_start))
-            self.loss_end_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_end_2, labels = self.a_end))
+            self.loss_start_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_1, labels=self.a_s))
+            self.loss_end_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_1, labels=self.a_e))
+            self.loss_start_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_2, labels=self.a_s))
+            self.loss_end_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_2, labels=self.a_e))
             # compute span l2 loss
             a_s_p = tf.argmax(self.yp_start, axis=1)
             a_e_p = tf.argmax(self.yp_end, axis=1)
-            self.loss_span = tf.reduce_mean(tf.nn.l2_loss(tf.cast(self.a_end - self.a_start + 1, tf.float32) - tf.cast(a_s_p - a_e_p, tf.float32)))
-            self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + self.FLAGS.span_l2*self.loss_span
+            self.loss_span = tf.reduce_mean(tf.nn.l2_loss(tf.cast(self.a_e - self.a_s + 1, tf.float32) - tf.cast(a_s_p - a_e_p, tf.float32)))
+            self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + self.FLAGS.span_l2 * self.loss_span
 
-    def evaluate_answer(self, session, Q_dev, P_dev, A_start_dev, A_end_dev, sample=100, log=False):
-        """
-        Evaluate the model's performance using the harmonic mean of F1 and Exact Match (EM)
-        with the set of true answer labels
+    def evaluate_answer(self, session, Q_dev, P_dev, a_s_dev, a_e_dev, sample=100):
+        f1 = 0.0
+        em = 0.0
 
-        This step actually takes quite some time. So we can only sample 100 examples
-        from either training or testing set.
-
-        :param session: session should always be centrally managed in train.py
-        :param dataset: a representation of our data, in some implementations, you can
-                        pass in multiple components (arguments) of one dataset to this function
-        :param sample: how many examples in dataset we look at
-        :param log: whether we print to std out stream
-        :return:
-        """
-
-        f1 = 0.
-        em = 0.
-
-        if log:
-            logging.info("F1: {}, EM: {}, for {} samples".format(f1, em, sample))
         for sample in samples: # sample of size 100
             answers_dic = generate_answers(sess, model, sample_dataset, rev_vocab) # returns dictionary to be fed in evaluate
             result = evaluate(sample_dataset_dic, answers_dic) # takes dictionaries of form nswers[uuid] = "real answer"
@@ -381,61 +358,52 @@ class QASystem(object):
 
         return f1, em
 
-    def create_feed_dict(self, P, Q, P_mask, Q_mask, A_start=None, A_end=None, dropout=1.0):
+    def create_feed_dict(self, P, Q, p_mask, q_mask, a_s=None, a_e=None, dropout=1.0):
         feed_dict = {
-            self.p_mask: P_mask,
-            self.q_mask: Q_mask,
-            self.p: P,
-            self.q: Q,
             self.dropout: dropout,
+            self.p: P
+            self.q: Q,
+            self.p_mask: p_mask,
+            self.q_mask: q_mask,
         }
-        if A_start is not None:
-            feed_dict[self.a_start] = A_start
-        if A_end is not None:
-            feed_dict[self.a_end] = A_end
+        if a_s is not None:
+            feed_dict[self.a_s] = a_s
+        if a_e is not None:
+            feed_dict[self.a_e] = a_e
         return feed_dict
 
-    def predict_on_batch(self, sess, P, Q, P_mask, Q_mask):
-        feed = self.create_feed_dict(P, Q, P_mask, Q_mask)
+    def predict_batch(self, sess, P, Q, p_mask, q_mask):
+        feed = self.create_feed_dict(P, Q, p_mask, q_mask)
         (yp_start, yp_end) = sess.run([self.yp_start, self.yp_end], feed_dict=feed)
         return (yp_start, yp_end)
 
-    def train_on_batch(self, sess, P, Q, A_start, A_end, P_mask, Q_mask):
-        """Perform one step of gradient descent on the provided batch of data.
-
-        Args:
-            sess: tf.Session()
-            input_batch: np.ndarray of shape (n_samples, n_features)
-            labels_batch: np.ndarray of shape (n_samples, n_classes)
-        Returns:
-            loss: loss over the batch (a scalar)
-        """
-        feed = self.create_feed_dict(P, Q, P_mask, Q_mask, A_start=A_start, A_end=A_end, dropout=(1.0 - self.FLAGS.dropout))
+    def train_batch(self, sess, P, Q, a_s, a_e, p_mask, q_mask):
+        feed = self.create_feed_dict(P, Q, p_mask, q_mask, a_s=a_s, a_e=a_e, dropout=(1.0-FLAGS.dropout))
         _, loss, norm = sess.run([self.train_op, self.loss, self.grad_norm], feed_dict=feed)
         return loss, norm
 
     def run_epoch(self, sess, train_examples, dev_set):
-        prog = Progbar(target=1 + int(len(train_examples) / self.batch_size))
-        for i, batch in enumerate(minibatches(train_examples, self.batch_size)):
+        prog = Progbar(target=1 + int(len(train_examples) / FLAGS.batch_size))
+        for i, batch in enumerate(minibatches(train_examples, FLAGS.batch_size)):
             # TODO we need to remove this. Make sure your model works with variable batch sizes
             batch = batch[:6]
-            if len(batch[0]) != self.batch_size:
+            if len(batch[0]) != FLAGS.batch_size:
                 continue
-            loss, norm = self.train_on_batch(sess, *batch)
+            loss, norm = self.train_batch(sess, *batch)
             #prog.update(i + 1, [("train loss", loss)])
             logging.info("train loss: {}, norm: {}".format(loss, norm))
         print("")
 
         logging.info("Evaluating on development data")
-        prog = Progbar(target=1 + int(len(dev_set) / self.batch_size))
+        prog = Progbar(target=1 + int(len(dev_set) / FLAGS.batch_size))
         f1 = exact_match = total = 0
-        for i, batch in enumerate(minibatches(dev_set, self.batch_size)):
+        for i, batch in enumerate(minibatches(dev_set, FLAGS.batch_size)):
             # TODO we need to remove this. Make sure your model works with variable batch sizes
-            if len(batch[0]) != self.batch_size:
+            if len(batch[0]) != FLAGS.batch_size:
                 continue
             # Only use P and Q
             batch_pred = batch[:2] + batch[4:6]
-            (ys, ye) = self.predict_on_batch(sess, *batch_pred)
+            (ys, ye) = self.predict_batch(sess, *batch_pred)
             a_s = np.argmax(ys, axis=1)
             a_e = np.argmax(ye, axis=1)
             for i in range(len(a_s)):
@@ -455,42 +423,11 @@ class QASystem(object):
         return f1
 
     def train(self, session, train_data, dev_data):
-        """
-        Implement main training loop
-
-        TIPS:
-        You should also implement learning rate annealing (look into tf.train.exponential_decay)
-        Considering the long time to train, you should save your model per epoch.
-
-        More ambitious appoarch can include implement early stopping, or reload
-        previous models if they have higher performance than the current one
-
-        As suggested in the document, you should evaluate your training progress by
-        printing out information every fixed number of iterations.
-
-        We recommend you evaluate your model performance on F1 and EM instead of just
-        looking at the cost.
-
-        :param session: it should be passed in from train.py
-        :param dataset: a representation of our data, in some implementations, you can
-                        pass in multiple components (arguments) of one dataset to this function
-        :return:
-        """
-
-        tic = time.time()
-        params = tf.trainable_variables()
-        num_params = sum(map(lambda t: np.prod(tf.shape(t.value()).eval()), params))
-        toc = time.time()
-        logging.info("Number of params: %d (retreival took %f secs)" % (num_params, toc - tic))
-
-        start = time.time()
-
         saver = tf.train.Saver()
-
-        best_score = 0.
-
-        for epoch in range(self.FLAGS.epochs):
-            logging.info("Epoch %d out of %d", epoch + 1, self.FLAGS.epochs)
+        best_score = 0.0
+        for epoch in range(FLAGS.epochs):
+            with Timer("training epoch {}/{}".format(epoch, FLAGS.epochs))
+            logging.info("Epoch %d out of %d", epoch + 1, FLAGS.epochs)
             score = self.run_epoch(session, train_data, dev_data)
             if score > best_score:
                 best_score = score
@@ -500,4 +437,6 @@ class QASystem(object):
             print("")
         logging.info("Best f1 score detected this run : %s ", best_score)
         return best_score
+
+
 
