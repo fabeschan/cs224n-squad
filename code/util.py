@@ -412,6 +412,16 @@ def minibatches(data, batch_size, shuffle=True):
     batches = [np.array(col) for col in zip(*data)]
     return get_minibatches(batches, batch_size, shuffle)
 
+def get_minibatches(data, batch_size=-1):
+    batch = []
+    for i in range(len(data)):
+        batch.append(data[i])
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if len(batch):
+        yield batch
+
 def print_sentence(output, sentence, labels, predictions):
 
     spacings = [max(len(sentence[i]), len(labels[i]), len(predictions[i])) for i in range(len(sentence))]

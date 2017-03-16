@@ -10,7 +10,7 @@ import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from tensorflow.python.ops import variable_scope as vs
-from util import ConfusionMatrix, Progbar, minibatches
+from util import ConfusionMatrix, Progbar, minibatches, get_minibatches
 
 from evaluate import exact_match_score, f1_score
 from evaluate import evaluate
@@ -388,13 +388,13 @@ class QASystem(object):
         return loss, norm
 
     def run_epoch(self, sess, train_examples, dev_set):
-        prog = Progbar(target=1 + int(len(train_examples) / FLAGS.batch_size))
-        for i, batch in enumerate(minibatches(train_examples, FLAGS.batch_size)):
+        #prog = Progbar(target=1 + int(len(train_examples) / FLAGS.batch_size))
+        for i, batch in enumerate(get_minibatches(train_examples, FLAGS.batch_size)):
             # TODO we need to remove this. Make sure your model works with variable batch sizes
-            batch = batch[:6]
-            if len(batch[0]) != FLAGS.batch_size:
+            p_train, q_train, a_s_train, a_e_train, p_mask_train, q_mask_train, p_raw_train, a_raw_train = zip(*batch)
+            if len(batch) != FLAGS.batch_size:
                 continue
-            loss, norm = self.train_batch(sess, *batch)
+            loss, norm = self.train_batch(sess,  p_train, q_train, a_s_train, a_e_train, p_mask_train, q_mask_train)
             #prog.update(i + 1, [("train loss", loss)])
             logging.info("train loss: {}, norm: {}".format(loss, norm))
         print("")
@@ -402,18 +402,18 @@ class QASystem(object):
         logging.info("Evaluating on development data")
         prog = Progbar(target=1 + int(len(dev_set) / FLAGS.batch_size))
         f1 = exact_match = total = 0
-        for i, batch in enumerate(minibatches(dev_set, FLAGS.batch_size)):
+        for i, batch in enumerate(get_minibatches(dev_set, FLAGS.batch_size)):
             # TODO we need to remove this. Make sure your model works with variable batch sizes
-            if len(batch[0]) != FLAGS.batch_size:
+            if len(batch) != FLAGS.batch_size:
                 continue
             # Only use P and Q
-            batch_pred = batch[:2] + batch[4:6]
-            (ys, ye) = self.predict_batch(sess, *batch_pred)
+            p_val, q_val, a_s_val, a_e_val, p_mask_val, q_mask_val, p_raw_val, a_raw_val = zip(*batch)
+            (ys, ye) = self.predict_batch(sess, p_val, q_val, p_mask_val, q_mask_val)
             a_s = np.argmax(ys, axis=1)
             a_e = np.argmax(ye, axis=1)
-            for i in range(len(a_s)):
-                p_raw = batch[6][i]
-                a_raw = batch[7][i]
+            for i in range(len(batch)):
+                p_raw = p_raw_val[i]
+                a_raw = a_raw_val[i]
                 s = a_s[i]
                 e = a_e[i]
                 pred_raw = ' '.join(p_raw.split()[s:e+1])
@@ -431,7 +431,7 @@ class QASystem(object):
         saver = tf.train.Saver()
         best_score = 0.0
         for epoch in range(FLAGS.epochs):
-            with Timer("training epoch {}/{}".format(epoch, FLAGS.epochs)):
+            with Timer("training epoch {}/{}".format(epoch + 1, FLAGS.epochs)):
                 logging.info("Epoch %d out of %d", epoch + 1, FLAGS.epochs)
                 score = self.run_epoch(session, train_data, dev_data)
                 if score > best_score:

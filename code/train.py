@@ -13,11 +13,7 @@ import numpy as np
 
 # for load, pad data
 from reader import load_data
-#from keras.preprocessing.sequence import pad_sequences
-#avoid keras = > causing GPU problem
-
 from qa_data import PAD_ID
-
 
 import logging
 
@@ -45,7 +41,6 @@ tf.app.flags.DEFINE_bool("tiny_sample", False, "Work with tiny sample")
 tf.app.flags.DEFINE_float("tiny_sample_pct", 0.1, "Sample pct.")
 tf.app.flags.DEFINE_float("dev_tiny_sample_pct", 1, "Sample pct.")
 tf.app.flags.DEFINE_float("span_l2", 0.0001, "Span l2 loss regularization constant")
-
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -168,33 +163,33 @@ def main(_):
 
 
     # load data sets
-    Q_train, P_train, A_start_train, A_end_train, P_raw_train, A_raw_train = load_data(FLAGS.data_dir, "train")
-    Q_dev, P_dev, A_start_dev, A_end_dev, P_raw_dev, A_raw_dev = load_data(FLAGS.data_dir, "val")
-    #Q_test, P_test, A_start_test, A_end_test = load_data(FLAGS.data_dir, "test")
+    q_train, p_train, a_s_train, a_e_train, p_raw_train, a_raw_train = load_data(FLAGS.data_dir, "train")
+    q_dev, p_dev, a_s_dev, a_e_dev, p_raw_dev, A_raw_dev = load_data(FLAGS.data_dir, "val")
+    #q_test, p_test, A_start_test, A_end_test = load_data(FLAGS.data_dir, "test")
 
     # see some data
-    logger.info("Training samples read... %s" % (len(Q_train)))
-    logger.info("Dev samples read... %s" % (len(Q_dev)))
-    # logger.info("Before Padding: \n Q_train[0]: %s \n P_train[0]: %s \n A_start_train[0]: %s \n A_end_train[0]: %s" % (Q_train[0], P_train[0], A_start_train[0], A_end_train[0]))
+    logger.info("Training samples read... %s" % (len(q_train)))
+    logger.info("Dev samples read... %s" % (len(q_dev)))
+    # logger.info("Before Padding: \n q_train[0]: %s \n p_train[0]: %s \n a_s_train[0]: %s \n a_e_train[0]: %s" % (q_train[0], p_train[0], a_s_train[0], a_e_train[0]))
 
     # pad the data at load-time. So, we don't need to do any masking later!!!
     # ref: https://keras.io/preprocessing/sequence/
     # if len < maxlen, pad with specified val
     # elif len > maxlen, truncate
-    Q_mask_train = get_mask(Q_train, FLAGS.question_size)
-    P_mask_train = get_mask(P_train, FLAGS.paragraph_size)
-    Q_train = pad_sequences(Q_train, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
-    P_train = pad_sequences(P_train, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
-    train_data = zip(P_train, Q_train, A_start_train, A_end_train, P_mask_train, Q_mask_train, P_raw_train, A_raw_train)
+    q_mask_train = get_mask(q_train, FLAGS.question_size)
+    p_mask_train = get_mask(p_train, FLAGS.paragraph_size)
+    q_train = pad_sequences(q_train, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
+    p_train = pad_sequences(p_train, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
+    train_data = zip(p_train, q_train, a_s_train, a_e_train, p_mask_train, q_mask_train, p_raw_train, a_raw_train)
 
     # see the effect of padding
-    # logger.info("After Padding: \n Q_train[0]: %s \n P_train[0]: %s \n A_start_train[0]: %s \n A_end_train[0]: %s" % (Q_train[0], P_train[0], A_start_train[0], A_end_train[0]))
+    # logger.info("After Padding: \n q_train[0]: %s \n p_train[0]: %s \n a_s_train[0]: %s \n a_e_train[0]: %s" % (q_train[0], p_train[0], a_s_train[0], a_e_train[0]))
     # repeat on dev and test set
-    Q_mask_dev = get_mask(Q_dev, FLAGS.question_size)
-    P_mask_dev = get_mask(P_dev, FLAGS.paragraph_size)
-    Q_dev = pad_sequences(Q_dev, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
-    P_dev = pad_sequences(P_dev, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
-    dev_data = zip(P_dev, Q_dev, A_start_dev, A_end_dev, P_mask_dev, Q_mask_dev, P_raw_dev, A_raw_dev)
+    q_mask_dev = get_mask(q_dev, FLAGS.question_size)
+    p_mask_dev = get_mask(p_dev, FLAGS.paragraph_size)
+    q_dev = pad_sequences(q_dev, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
+    p_dev = pad_sequences(p_dev, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
+    dev_data = zip(p_dev, q_dev, a_s_dev, a_e_dev, p_mask_dev, q_mask_dev, p_raw_dev, A_raw_dev)
 
 
     global_train_dir = '/tmp/cs224n-squad-train'
@@ -237,7 +232,7 @@ def main(_):
 
             qa.train(sess, train_data, dev_data)
 
-            #qa.evaluate_answer(sess, Q_dev, P_dev, A_start_dev, vocab)
+            #qa.evaluate_answer(sess, q_dev, p_dev, a_s_dev, vocab)
 
 if __name__ == "__main__":
     tf.app.run()
