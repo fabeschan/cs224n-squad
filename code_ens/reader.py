@@ -22,7 +22,7 @@ def load_data(data_dir, data_subset):
     with open(path + ".answer") as f:
         for line in f:
             A_raw.append(line)
-    return Q, P, A_start, A_end
+    return Q, P, A_start, A_end, P_raw, A_raw
 
 def load_dataset(*filenames):
     res = [ [] for i in range(len(filenames)) ]
