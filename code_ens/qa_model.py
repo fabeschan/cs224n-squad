@@ -55,7 +55,7 @@ class QASystem(object):
 
         with tf.variable_scope("qa", initializer=tf.uniform_unit_scaling_initializer(1.0)):
             self.setup_system_ensemble()
-            self.setup_loss()
+            self.setup_loss_enriched_ensemble()
             optimizer = get_optimizer(self.FLAGS.optimizer)(self.FLAGS.learning_rate) #.minimize(self.loss)
             variables = tf.trainable_variables()
             print([v.name for v in variables])
@@ -127,9 +127,9 @@ class QASystem(object):
         # define placeholders
         self.q = tf.placeholder(tf.int32, [None, self.QMAXLEN], name="question")
         self.p = tf.placeholder(tf.int32, [None, self.PMAXLEN], name="context_paragraph")
-        self.a_start = tf.placeholder(tf.float32, [None, self.PMAXLEN], name="answer_start")
-        self.a_end = tf.placeholder(tf.float32, [None, self.PMAXLEN], name="answer_end")
-        self.a_len = tf.placeholder(tf.float32, [None], name="answer_length")
+        self.a_start = tf.placeholder(tf.int32, [None], name="answer_start")
+        self.a_end = tf.placeholder(tf.int32, [None], name="answer_end")
+        self.a_len = tf.placeholder(tf.int32, [None], name="answer_length")
         self.q_len = tf.placeholder(tf.int32, [None], name="q_len")
         self.p_len = tf.placeholder(tf.int32, [None], name="p_len")
         self.p_mask = tf.placeholder(tf.int32, [None, self.PMAXLEN], name="paragraph_mask")
@@ -336,6 +336,25 @@ class QASystem(object):
         self.yp_start = tf.multiply(self.yp_start_1, self.yp_start_2)
         self.yp_end = tf.multiply(self.yp_end_1, self.yp_end_2)
 
+    def setup_loss_enriched_ensemble(self):
+        """
+        Set up your loss computation here
+        :return:
+        """
+
+        # may need to do some reshaping here
+        # Someone replaced yp_start with logits_start in loss. Don't really follow the change. Setting it back to original.
+        with vs.variable_scope("loss"):
+            self.loss_start_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_start_1, labels = self.a_start))
+            self.loss_end_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_end_1, labels = self.a_end))
+            self.loss_start_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_start_2, labels = self.a_start))
+            self.loss_end_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_end_2, labels = self.a_end))
+            # compute span l2 loss
+            a_s_p = tf.argmax(self.yp_start, axis=1)
+            a_e_p = tf.argmax(self.yp_end, axis=1)
+            self.loss_span = tf.reduce_mean(tf.nn.l2_loss( tf.cast(self.a_len, tf.float32)  - tf.cast(a_s_p - a_e_p, tf.float32)))
+            self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + self.FLAGS.span_l2*self.loss_span
+
     def setup_loss(self):
         """
         Set up your loss computation here
@@ -345,10 +364,8 @@ class QASystem(object):
         # may need to do some reshaping here
         # Someone replaced yp_start with logits_start in loss. Don't really follow the change. Setting it back to original.
         with vs.variable_scope("loss"):
-            self.loss_start = (tf.reduce_mean(
-                tf.nn.softmax_cross_entropy_with_logits(logits = self.logits_start, labels = tf.cast(self.a_start, tf.float32))))
-            self.loss_end = (tf.reduce_mean(
-                tf.nn.softmax_cross_entropy_with_logits(logits = self.logits_end, labels = tf.cast(self.a_end, tf.float32))))
+            self.loss_start = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_start, labels = self.a_start))
+            self.loss_end = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_end, labels = self.a_end))
             self.loss = tf.add(self.loss_start, self.loss_end)
 
     def evaluate_answer(self, session, Q_dev, P_dev, A_start_dev, A_end_dev, sample=100, log=False):

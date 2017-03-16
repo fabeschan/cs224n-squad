@@ -29,7 +29,7 @@ tf.app.flags.DEFINE_float("dropout", 0.1, "Fraction of units randomly dropped on
 tf.app.flags.DEFINE_integer("batch_size", 20, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
-tf.app.flags.DEFINE_string("data_dir", "data/squad", "SQuAD directory (default ./data/squad)")
+tf.app.flags.DEFINE_string("data_dir", "data0/squad", "SQuAD directory (default ./data/squad)")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory to save the model parameters (default: ./train).")
 tf.app.flags.DEFINE_string("log_dir", "log", "Path to store log and flag files (default: ./log)")
 tf.app.flags.DEFINE_string("optimizer", "adam", "adam / sgd")
@@ -167,8 +167,8 @@ def main(_):
     P_mask_train = get_mask(P_train, PMAXLEN)
     Q_train = pad_sequences(Q_train, maxlen=QMAXLEN, value=PAD_ID, padding="post")
     P_train = pad_sequences(P_train, maxlen=PMAXLEN, value=PAD_ID, padding="post")
-    A_start_train = pad_sequences(A_start_train, maxlen=PMAXLEN, value=0, padding="post")
-    A_end_train = pad_sequences(A_end_train, maxlen=PMAXLEN, value=0, padding="post")
+    #A_start_train = pad_sequences(A_start_train, maxlen=PMAXLEN, value=0, padding="post")
+    #A_end_train = pad_sequences(A_end_train, maxlen=PMAXLEN, value=0, padding="post")
     train_data = zip(P_train, Q_train, P_len_train, Q_len_train, A_start_train, A_end_train, A_len_train,P_mask_train, Q_mask_train, P_raw_train, A_raw_train)
 
     # see the effect of padding
@@ -178,8 +178,8 @@ def main(_):
     P_mask_dev = get_mask(P_dev, PMAXLEN)
     Q_dev = pad_sequences(Q_dev, maxlen=QMAXLEN, value=PAD_ID, padding="post")
     P_dev = pad_sequences(P_dev, maxlen=PMAXLEN, value=PAD_ID, padding="post")
-    A_start_dev = pad_sequences(A_start_dev, maxlen=PMAXLEN, value=0, padding="post")
-    A_end_dev = pad_sequences(A_end_dev, maxlen=PMAXLEN, value=0, padding="post")
+    #A_start_dev = pad_sequences(A_start_dev, maxlen=PMAXLEN, value=0, padding="post")
+    #A_end_dev = pad_sequences(A_end_dev, maxlen=PMAXLEN, value=0, padding="post")
     dev_data = zip(P_dev, Q_dev, P_len_dev, Q_len_dev, A_start_dev, A_end_dev, A_len_dev,P_mask_dev, Q_mask_dev, P_raw_dev, A_raw_dev)
 
 
