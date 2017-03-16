@@ -187,7 +187,7 @@ def main(_):
     P_mask_train = get_mask(P_train, PMAXLEN)
     Q_train = pad_sequences(Q_train, maxlen=QMAXLEN, value=PAD_ID, padding="post")
     P_train = pad_sequences(P_train, maxlen=PMAXLEN, value=PAD_ID, padding="post")
-    train_data = zip(P_train, Q_train, A_start_train, A_end_train, Q_mask_train, P_mask_train)
+    train_data = zip(P_train, Q_train, A_start_train, A_end_train, P_mask_train, Q_mask_train)
 
     # see the effect of padding
     # logger.info("After Padding: \n Q_train[0]: %s \n P_train[0]: %s \n A_start_train[0]: %s \n A_end_train[0]: %s" % (Q_train[0], P_train[0], A_start_train[0], A_end_train[0]))
@@ -196,7 +196,7 @@ def main(_):
     P_mask_dev = get_mask(P_dev, PMAXLEN)
     Q_dev = pad_sequences(Q_dev, maxlen=QMAXLEN, value=PAD_ID, padding="post")
     P_dev = pad_sequences(P_dev, maxlen=PMAXLEN, value=PAD_ID, padding="post")
-    dev_data = zip(P_dev, Q_dev, A_start_dev, A_end_dev, Q_mask_dev, P_mask_dev)
+    dev_data = zip(P_dev, Q_dev, A_start_dev, A_end_dev, P_mask_dev, Q_mask_dev)
 
 
     global_train_dir = '/tmp/cs224n-squad-train'
