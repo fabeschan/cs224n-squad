@@ -29,7 +29,7 @@ tf.app.flags.DEFINE_float("dropout", 0.1, "Fraction of units randomly dropped on
 tf.app.flags.DEFINE_integer("batch_size", 10, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
-tf.app.flags.DEFINE_string("data_dir", "data0/squad", "SQuAD directory (default ./data/squad)")
+tf.app.flags.DEFINE_string("data_dir", "data/squad", "SQuAD directory (default ./data/squad)")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory to save the model parameters (default: ./train).")
 tf.app.flags.DEFINE_string("log_dir", "log", "Path to store log and flag files (default: ./log)")
 tf.app.flags.DEFINE_string("optimizer", "adam", "adam / sgd")
@@ -168,7 +168,7 @@ def main(_):
 
 
     # load data sets
-    Q_train, P_train, A_start_train, A_end_train, P_raw_train, A_raw_train = load_data(FLAGS.data_dir, "val")
+    Q_train, P_train, A_start_train, A_end_train, P_raw_train, A_raw_train = load_data(FLAGS.data_dir, "train")
     Q_dev, P_dev, A_start_dev, A_end_dev, P_raw_dev, A_raw_dev = load_data(FLAGS.data_dir, "val")
     #Q_test, P_test, A_start_test, A_end_test = load_data(FLAGS.data_dir, "test")
 
@@ -181,21 +181,19 @@ def main(_):
     # ref: https://keras.io/preprocessing/sequence/
     # if len < maxlen, pad with specified val
     # elif len > maxlen, truncate
-    QMAXLEN = FLAGS.QMAXLEN
-    PMAXLEN = FLAGS.PMAXLEN
-    Q_mask_train = get_mask(Q_train, QMAXLEN)
-    P_mask_train = get_mask(P_train, PMAXLEN)
-    Q_train = pad_sequences(Q_train, maxlen=QMAXLEN, value=PAD_ID, padding="post")
-    P_train = pad_sequences(P_train, maxlen=PMAXLEN, value=PAD_ID, padding="post")
+    Q_mask_train = get_mask(Q_train, FLAGS.question_size)
+    P_mask_train = get_mask(P_train, FLAGS.paragraph_size)
+    Q_train = pad_sequences(Q_train, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
+    P_train = pad_sequences(P_train, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
     train_data = zip(P_train, Q_train, A_start_train, A_end_train, P_mask_train, Q_mask_train, P_raw_train, A_raw_train)
 
     # see the effect of padding
     # logger.info("After Padding: \n Q_train[0]: %s \n P_train[0]: %s \n A_start_train[0]: %s \n A_end_train[0]: %s" % (Q_train[0], P_train[0], A_start_train[0], A_end_train[0]))
     # repeat on dev and test set
-    Q_mask_dev = get_mask(Q_dev, QMAXLEN)
-    P_mask_dev = get_mask(P_dev, PMAXLEN)
-    Q_dev = pad_sequences(Q_dev, maxlen=QMAXLEN, value=PAD_ID, padding="post")
-    P_dev = pad_sequences(P_dev, maxlen=PMAXLEN, value=PAD_ID, padding="post")
+    Q_mask_dev = get_mask(Q_dev, FLAGS.question_size)
+    P_mask_dev = get_mask(P_dev, FLAGS.paragraph_size)
+    Q_dev = pad_sequences(Q_dev, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
+    P_dev = pad_sequences(P_dev, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
     dev_data = zip(P_dev, Q_dev, A_start_dev, A_end_dev, P_mask_dev, Q_mask_dev, P_raw_dev, A_raw_dev)
 
 

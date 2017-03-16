@@ -15,6 +15,7 @@ from util import ConfusionMatrix, Progbar, minibatches
 from evaluate import exact_match_score, f1_score
 from evaluate import evaluate
 
+FLAGS = tf.app.flags.FLAGS
 
 # Setup logging (to console and to file)
 logging.root.handlers = []
@@ -26,14 +27,17 @@ console.setFormatter(formatter)
 logging.getLogger("").addHandler(console)
 
 class Timer(object):
-    def __enter__(self, name="unnamed"):
+    def __init__(self, name="unnamed"):
+        self.name = name
+
+    def __enter__(self):
         self.start = time.clock()
         return self
 
     def __exit__(self, *args):
         self.end = time.clock()
         self.interval = self.end - self.start
-        logging.info("Timer: [{}] took {}s to run".format(self.interval))
+        logging.info("Timer: [{}] took {}s to run".format(self.name, self.interval))
 
 def get_optimizer(opt):
     if opt == "adam":
@@ -56,6 +60,7 @@ class QASystem(object):
 
         with Timer("setup graph"):
             with tf.variable_scope("qa", initializer=tf.uniform_unit_scaling_initializer(1.0)):
+                self.setup_placeholder()
                 self.setup_system()
                 self.setup_loss()
                 self.setup_optimizer()
@@ -264,7 +269,7 @@ class QASystem(object):
             )
             output_p_fw = tf.expand_dims(output_p_fw, 3)
             tp1 = tf.nn.l2_normalize(tf.multiply(output_p_fw, W1), dim=2)
-            qs1 = output_q_fw[:, FLAGS.qestion_size - 1, :]
+            qs1 = output_q_fw[:, FLAGS.question_size - 1, :]
             qs1 = tf.expand_dims(qs1, 1)
             qs1 = tf.expand_dims(qs1, 3)
             tq1 = tf.nn.l2_normalize(tf.multiply(qs1, W1), dim=2)
@@ -309,14 +314,14 @@ class QASystem(object):
             W_start_ = tf.get_variable("W_start_", shape=[dim_final_layer, 1], initializer=tf.contrib.layers.xavier_initializer())
             b_start_ = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
             mixed_start = tf.matmul(final_layer_, W_start_)
-            mixed_start = tf.reshape(mixed_start, shape=[-1, FLAGS.paragraph])
+            mixed_start = tf.reshape(mixed_start, shape=[-1, FLAGS.paragraph_size])
             self.logits_start_2 = mixed_start + b_start_
             self.yp_start_2 = tf.nn.softmax(self.logits_start_2)
 
             W_end_ = tf.get_variable("W_end_", shape=[dim_final_layer, 1], initializer=tf.contrib.layers.xavier_initializer())
-            b_end_ = tf.Variable(tf.zeros([FLAGS.paragraph]))
+            b_end_ = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
             mixed_end = tf.matmul(final_layer_, W_end_)
-            mixed_end = tf.reshape(mixed_end, shape=[-1, FLAGS.paragraph])
+            mixed_end = tf.reshape(mixed_end, shape=[-1, FLAGS.paragraph_size])
 
         self.logits_end_2 = mixed_end + b_end_
         self.yp_end_2 = tf.nn.softmax(self.logits_end_2)
@@ -336,15 +341,15 @@ class QASystem(object):
         # may need to do some reshaping here
         # Someone replaced yp_start with logits_start in loss. Don't really follow the change. Setting it back to original.
         with vs.variable_scope("loss"):
-            self.loss_start_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_1, labels=self.a_s))
-            self.loss_end_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_1, labels=self.a_e))
-            self.loss_start_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_2, labels=self.a_s))
-            self.loss_end_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_2, labels=self.a_e))
+            self.loss_start_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.yp_start_1, labels=self.a_s))
+            self.loss_end_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.yp_end_1, labels=self.a_e))
+            self.loss_start_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.yp_start_2, labels=self.a_s))
+            self.loss_end_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.yp_end_2, labels=self.a_e))
             # compute span l2 loss
             a_s_p = tf.argmax(self.yp_start, axis=1)
             a_e_p = tf.argmax(self.yp_end, axis=1)
             self.loss_span = tf.reduce_mean(tf.nn.l2_loss(tf.cast(self.a_e - self.a_s + 1, tf.float32) - tf.cast(a_s_p - a_e_p, tf.float32)))
-            self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + self.FLAGS.span_l2 * self.loss_span
+            self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + FLAGS.span_l2 * self.loss_span
 
     def evaluate_answer(self, session, Q_dev, P_dev, a_s_dev, a_e_dev, sample=100):
         f1 = 0.0
@@ -361,7 +366,7 @@ class QASystem(object):
     def create_feed_dict(self, P, Q, p_mask, q_mask, a_s=None, a_e=None, dropout=1.0):
         feed_dict = {
             self.dropout: dropout,
-            self.p: P
+            self.p: P,
             self.q: Q,
             self.p_mask: p_mask,
             self.q_mask: q_mask,
@@ -426,16 +431,16 @@ class QASystem(object):
         saver = tf.train.Saver()
         best_score = 0.0
         for epoch in range(FLAGS.epochs):
-            with Timer("training epoch {}/{}".format(epoch, FLAGS.epochs))
-            logging.info("Epoch %d out of %d", epoch + 1, FLAGS.epochs)
-            score = self.run_epoch(session, train_data, dev_data)
-            if score > best_score:
-                best_score = score
-                if saver:
-                    logging.info("New best score! Saving model in %s", self.model_output)
-                    saver.save(session, self.model_output)
-            print("")
-        logging.info("Best f1 score detected this run : %s ", best_score)
+            with Timer("training epoch {}/{}".format(epoch, FLAGS.epochs)):
+                logging.info("Epoch %d out of %d", epoch + 1, FLAGS.epochs)
+                score = self.run_epoch(session, train_data, dev_data)
+                if score > best_score:
+                    best_score = score
+                    if saver:
+                        logging.info("New best score! Saving model in %s", self.model_output)
+                        saver.save(session, self.model_output)
+                print("")
+            logging.info("Best f1 score detected this run : %s ", best_score)
         return best_score
 
 
