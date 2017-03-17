@@ -67,31 +67,27 @@ class QASystem(object):
 
     # http://www.aclweb.org/anthology/D15-1166
     def setup_attention_layer(self, pp, qq):
-                #h_dim = self.hidden_size
-        #h_dim = self.hidden_size
-        #h_dim = self.hidden_size
-        #h_dim = self.hidden_size
-        # pp is B-by-PMAXLEN-by-2h_dim, qq is B-by-QMAXLEN-by-2hdim
-        # below will return B-by-QMAXLEN-by-PMAXLEN
+        #qq = tf.transpose(qq, perm=[0, 2, 1])
+        #pp = tf.transpose(pp, perm=[0, 2, 1])
         # i.e. use dot-product scoring
+        print("qq shape", qq.get_shape())
         s = tf.matmul(qq, tf.transpose(pp, perm=[0, 2, 1]))  # much more complexity needed here (for example softmax scaling etc.)
-        s_max = tf.reduce_max(s, axis = 1, keep_dims=True)
-        s_min= tf.reduce_min(s, axis = 1, keep_dims=True)
-        s_mean = tf.reduce_mean(s, axis = 1, keep_dims=True)
-        s_enrich = tf.concat([s_max, s_min, s_mean], 1)
+        #s_max = tf.reduce_max(s, axis = 1, keep_dims=True)
+        #s_min= tf.reduce_min(s, axis = 1, keep_dims=True)
+        #s_mean = tf.reduce_mean(s, axis = 1, keep_dims=True)
+        #s_enrich = tf.concat([s_max, s_min, s_mean], 1)
 
-        # print(s.get_shape())
+        print("s shape:",s.get_shape())
         alphap = tf.nn.softmax(s, dim=1) # should be column-wise as sum(alpha_i) per paragraph-word is 1
+        print("alphap shape:",alphap.get_shape())
         # Q*P
         alphaq = tf.nn.softmax(tf.transpose(s, perm=[0,2,1]), dim=1) # should be column-wise as sum(alpha_i) per question-word is 1
         # P*Q
 
         #print(alpha.get_shape()); print(qq.get_shape())
-        # Now produce the context vector c for paragpraph words
-        cp = tf.matmul(tf.transpose(qq, perm = [0, 2, 1]), alphap) # paragraph-context vector
-        # Now produce the context vector c for question words
-        cq = tf.matmul(tf.transpose(pp, perm = [0, 2, 1]), alphaq) # quesiton-context vector
-
+        #cp = tf.matmul(tf.transpose(qq, perm = [0, 2, 1]), alphap)
+        cq = tf.matmul(tf.transpose(pp, perm = [0, 2, 1]), alphaq)
+        print("cq shape",cq.get_shape())
         # Add filter layer
         filterLayer = False
         if filterLayer:
@@ -404,8 +400,9 @@ class QASystem(object):
             p, q, p_len, q_len, a_s, a_e, _ = zip(*batch)
             #if len(batch) != FLAGS.batch_size:
             #    continue
-            loss, norm = self.train_batch(sess, p, q, p_len, q_len, a_s, a_e)
-            logging.info("train loss: {}, norm: {}".format(loss, norm))
+            with Timer("batch train"):
+                loss, norm = self.train_batch(sess, p, q, p_len, q_len, a_s, a_e)
+                logging.info("train loss: {}, norm: {}".format(loss, norm))
         print("")
 
         logging.info("Evaluating on development data")
