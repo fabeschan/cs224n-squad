@@ -116,8 +116,8 @@ class QASystem(object):
         self.p = tf.placeholder(tf.int32, [None, FLAGS.paragraph_size], name="paragraph")
         self.a_s = tf.placeholder(tf.int32, [None], name="answer_start")
         self.a_e = tf.placeholder(tf.int32, [None], name="answer_end")
-        self.p_mask = tf.placeholder(tf.int32, [None, FLAGS.paragraph_size], name="paragraph_mask")
-        self.q_mask = tf.placeholder(tf.int32, [None, FLAGS.question_size], name = "question_mask")
+        self.p_len = tf.placeholder(tf.int32, [None], name="paragraph_len")
+        self.q_len = tf.placeholder(tf.int32, [None], name = "question_len")
 
     def setup_optimizer(self):
         optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate) #.minimize(self.loss)
@@ -125,10 +125,23 @@ class QASystem(object):
         #print([v.name for v in variables])
         gradients = optimizer.compute_gradients(self.loss, variables)
         gradients = [tup[0] for tup in gradients]
-        if FLAGS.clip_gradients:
+        if FLAGS.grad_clip:
             gradients, norms = tf.clip_by_global_norm(gradients, FLAGS.max_gradient_norm)
-        self.grad_norm = tf.global_norm(gradients)
+        self.norm = tf.global_norm(gradients)
         grads_and_vars = zip(gradients, variables)
+
+        '''
+        optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate)
+        params = tf.trainable_variables()
+
+        grads_and_vars = optimizer.compute_gradients(self.loss, params)
+        grads = [x[0] for x in grads_and_vars]
+        if FLAGS.grad_clip:
+            grads, _ = tf.clip_by_global_norm(grads, FLAGS.max_gradient_norm)
+
+        self.norm = tf.global_norm(grads)
+        grads_and_vars = zip(grads, params)
+        '''
         self.train_op = optimizer.apply_gradients(grads_and_vars)
 
     def setup_system(self):
@@ -139,8 +152,9 @@ class QASystem(object):
         self.cell = tf.contrib.rnn.BasicLSTMCell
 
         # add embeddings for question and paragraph
-        self.embedding_mat = tf.Variable(self.pretrained_embeddings, name="pre", dtype=tf.float32)
-        # https://www.tensorflow.org/api_docs/python/tf/nn/embedding_lookup
+        # could tune this to be not trainable to boost speed
+        self.embedding_mat = tf.Variable(self.pretrained_embeddings, name="embed", dtype=tf.float32)
+
         self.q_emb = tf.cast(tf.nn.embedding_lookup(self.embedding_mat, self.q), dtype=tf.float32)  # perhaps B-by-Q-by-d
         self.p_emb = tf.cast(tf.nn.embedding_lookup(self.embedding_mat, self.p), dtype=tf.float32)  # perhaps B-by-P-by-d
 
@@ -156,8 +170,6 @@ class QASystem(object):
         # get bilstm encodings
         cur_batch_size = tf.shape(self.p)[0]
 
-        p_seq_len = tf.reduce_sum(self.p_mask, axis=1)
-        q_seq_len = tf.reduce_sum(self.q_mask, axis=1)
 
         print(("type1", (self.p_emb).get_shape()))
         # build the hidden representation for the question (fwd and bwd and stack them together)
@@ -166,7 +178,7 @@ class QASystem(object):
                 cell_fw=cell_q_fwd,
                 cell_bw=cell_q_bwd,
                 inputs=self.q_emb,
-                sequence_length=q_seq_len,
+                sequence_length=self.q_len,
                 dtype=tf.float32
             )
             self.qq = tf.concat([output_q_fw, output_q_bw], 2)  # 2h_dim dimensional representation over each word in question
@@ -178,7 +190,7 @@ class QASystem(object):
                 cell_bw=cell_p_bwd,
                 initial_state_fw=output_state_fw_q,
                 inputs=self.p_emb,
-                sequence_length=p_seq_len,
+                sequence_length=self.p_len,
                 dtype=tf.float32
             )
             self.pp = tf.concat(outputs_p, 2)  # 2h_dim dimensional representation over each word in context-paragraph
@@ -195,13 +207,13 @@ class QASystem(object):
         print(("type2", (self.att).get_shape()))
 
         # apply another LSTM layer before softmax
-        seq_len_final = tf.reduce_sum(self.p_mask, axis=1)
         cell_final = self.cell(dim_att, state_is_tuple=True)
         out_lstm, _ = tf.nn.bidirectional_dynamic_rnn(
             cell_fw=cell_final,
             cell_bw=cell_final,
             inputs=tf.transpose(self.att, perm = [0, 2, 1]),
-            sequence_length=seq_len_final, dtype=tf.float32
+            sequence_length=self.p_len ,
+            dtype=tf.float32
         )
         lstm_final = tf.concat(out_lstm, 2)
         #lstm_final = tf.transpose(, perm = [0, 2, 1])  # 2*2h_dim dimensional representation over each word in context-paragraph
@@ -252,7 +264,7 @@ class QASystem(object):
                 cell_bw=cell,
                 inputs=self.p_emb_p,
                 initial_state_fw=output_state_fw_q,
-                sequence_length=p_seq_len,
+                sequence_length=self.p_len,
                 dtype=tf.float32
             )
 
@@ -295,14 +307,13 @@ class QASystem(object):
 
             # Aggregation layer
             cur_batch_size = tf.shape(self.p)[0];
-            p_seq_len =  tf.reduce_sum(self.p_mask, axis=1)
 
             with tf.variable_scope("mix"):
                 outputs_mix, _ = tf.nn.bidirectional_dynamic_rnn(
                     cell_fw=cell,
                     cell_bw=cell,
                     inputs=m,
-                    sequence_length=p_seq_len,
+                    sequence_length= self.p_len,
                     dtype=tf.float32)
                 final_layer = tf.concat(outputs_mix, 2)
 
@@ -349,12 +360,13 @@ class QASystem(object):
             a_s_p = tf.argmax(self.yp_start, axis=1)
             a_e_p = tf.argmax(self.yp_end, axis=1)
             self.loss_span = tf.reduce_mean(tf.nn.l2_loss(tf.cast(self.a_e - self.a_s + 1, tf.float32) - tf.cast(a_s_p - a_e_p, tf.float32)))
-            self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + FLAGS.span_l2 * self.loss_span
+            self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + FLAGS.l2_lambda * self.loss_span
 
-    def evaluate_answer(self, session, Q_dev, P_dev, a_s_dev, a_e_dev, sample=100):
+    def evaluate_answer(self, session,  p, q, p_len, q_len, a_s, a_e, sample=100):
         f1 = 0.0
         em = 0.0
 
+        #unused for now
         for sample in samples: # sample of size 100
             answers_dic = generate_answers(sess, model, sample_dataset, rev_vocab) # returns dictionary to be fed in evaluate
             result = evaluate(sample_dataset_dic, answers_dic) # takes dictionaries of form nswers[uuid] = "real answer"
@@ -363,13 +375,13 @@ class QASystem(object):
 
         return f1, em
 
-    def create_feed_dict(self, P, Q, p_mask, q_mask, a_s=None, a_e=None, dropout=1.0):
+    def create_feed_dict(self, p,q, p_len, q_len, a_s=None, a_e=None, dropout=1.0):
         feed_dict = {
             self.dropout: dropout,
-            self.p: P,
-            self.q: Q,
-            self.p_mask: p_mask,
-            self.q_mask: q_mask,
+            self.p: p,
+            self.q: q,
+            self.p_len: p_len,
+            self.q_len: q_len,
         }
         if a_s is not None:
             feed_dict[self.a_s] = a_s
@@ -377,46 +389,41 @@ class QASystem(object):
             feed_dict[self.a_e] = a_e
         return feed_dict
 
-    def predict_batch(self, sess, P, Q, p_mask, q_mask):
-        feed = self.create_feed_dict(P, Q, p_mask, q_mask)
+    def predict_batch(self, sess, p, q, p_len, q_len):
+        feed = self.create_feed_dict(p, q, p_len, q_len)
         (yp_start, yp_end) = sess.run([self.yp_start, self.yp_end], feed_dict=feed)
         return (yp_start, yp_end)
 
-    def train_batch(self, sess, P, Q, a_s, a_e, p_mask, q_mask):
-        feed = self.create_feed_dict(P, Q, p_mask, q_mask, a_s=a_s, a_e=a_e, dropout=(1.0-FLAGS.dropout))
-        _, loss, norm = sess.run([self.train_op, self.loss, self.grad_norm], feed_dict=feed)
+    def train_batch(self, sess, p, q, p_len, q_len, a_s, a_e):
+        feed = self.create_feed_dict( p, q, p_len, q_len, a_s=a_s,a_e=a_e, dropout=(1.0-FLAGS.dropout))
+        _, loss, norm = sess.run([self.train_op, self.loss, self.norm], feed_dict=feed)
         return loss, norm
 
     def run_epoch(self, sess, train_examples, dev_set):
-        #prog = Progbar(target=1 + int(len(train_examples) / FLAGS.batch_size))
         for i, batch in enumerate(get_minibatches(train_examples, FLAGS.batch_size)):
-            # TODO we need to remove this. Make sure your model works with variable batch sizes
-            p_train, q_train, a_s_train, a_e_train, p_mask_train, q_mask_train, p_raw_train, a_raw_train = zip(*batch)
-            if len(batch) != FLAGS.batch_size:
-                continue
-            loss, norm = self.train_batch(sess,  p_train, q_train, a_s_train, a_e_train, p_mask_train, q_mask_train)
-            #prog.update(i + 1, [("train loss", loss)])
+            p, q, p_len, q_len, a_s, a_e, _ = zip(*batch)
+            #if len(batch) != FLAGS.batch_size:
+            #    continue
+            loss, norm = self.train_batch(sess, p, q, p_len, q_len, a_s, a_e)
             logging.info("train loss: {}, norm: {}".format(loss, norm))
         print("")
 
         logging.info("Evaluating on development data")
-        prog = Progbar(target=1 + int(len(dev_set) / FLAGS.batch_size))
         f1 = exact_match = total = 0
         for i, batch in enumerate(get_minibatches(dev_set, FLAGS.batch_size)):
-            # TODO we need to remove this. Make sure your model works with variable batch sizes
-            if len(batch) != FLAGS.batch_size:
-                continue
             # Only use P and Q
-            p_val, q_val, a_s_val, a_e_val, p_mask_val, q_mask_val, p_raw_val, a_raw_val = zip(*batch)
-            (ys, ye) = self.predict_batch(sess, p_val, q_val, p_mask_val, q_mask_val)
-            a_s = np.argmax(ys, axis=1)
-            a_e = np.argmax(ye, axis=1)
+            p, q, p_len, q_len, a_s, a_e, p_raw = zip(*batch)
+            (ys, ye) = self.predict_batch(sess, p, q, p_len, q_len)
+            a_s_pred = np.argmax(ys, axis=1)
+            a_e_pred = np.argmax(ye, axis=1)
             for i in range(len(batch)):
-                p_raw = p_raw_val[i]
-                a_raw = a_raw_val[i]
-                s = a_s[i]
-                e = a_e[i]
-                pred_raw = ' '.join(p_raw.split()[s:e+1])
+                #predicted a_s and a_e
+                s_pred = a_s_pred[i]
+                e_pred = a_e_pred[i]
+                #ground truth lables
+                a_raw = ' '.join(p_raw[i][a_s[i]:a_e[i]+1])
+
+                pred_raw = ' '.join(p_raw[i][s_pred:e_pred+1])
                 f1 += f1_score(pred_raw, a_raw)
                 exact_match += exact_match_score(pred_raw, a_raw)
                 total += 1

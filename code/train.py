@@ -12,7 +12,6 @@ from os.path import join as pjoin
 import numpy as np
 
 # for load, pad data
-from reader import load_data
 from qa_data import PAD_ID
 
 import logging
@@ -22,10 +21,10 @@ logging.basicConfig(level=logging.INFO)
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("learning_rate", 0.0001, "Learning rate.")
 tf.app.flags.DEFINE_float("dropout", 0.1, "Fraction of units randomly dropped on non-recurrent connections.")
-tf.app.flags.DEFINE_integer("batch_size", 10, "Batch size to use during training.")
+tf.app.flags.DEFINE_integer("batch_size", 20, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
-tf.app.flags.DEFINE_string("data_dir", "data/squad", "SQuAD directory (default ./data/squad)")
+tf.app.flags.DEFINE_string("data_dir", "data0/squad", "SQuAD directory (default ./data/squad)")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory to save the model parameters (default: ./train).")
 tf.app.flags.DEFINE_string("log_dir", "log", "Path to store log and flag files (default: ./log)")
 tf.app.flags.DEFINE_string("optimizer", "adam", "adam / sgd")
@@ -33,14 +32,11 @@ tf.app.flags.DEFINE_string("vocab_path", "data/squad/vocab.dat", "Path to vocab 
 tf.app.flags.DEFINE_string("embed_path", "", "Path to the trimmed GLoVe embedding (default: ./data/squad/glove.trimmed.{vocab_dim}.npz)")
 
 tf.app.flags.DEFINE_integer("question_size", 60, "Max Question Length")
-tf.app.flags.DEFINE_integer("paragraph_size", 766, "Max Context Paragraph Length")
+tf.app.flags.DEFINE_integer("paragraph_size", 400, "Max Context Paragraph Length")
 tf.app.flags.DEFINE_integer("hidden_size", 200, "size of hidden layer h_i")
 tf.app.flags.DEFINE_integer("perspective_units", 50, "Number of lstm representation h_i")
-tf.app.flags.DEFINE_bool("clip_gradients", True, "Do gradient clipping")
-tf.app.flags.DEFINE_bool("tiny_sample", False, "Work with tiny sample")
-tf.app.flags.DEFINE_float("tiny_sample_pct", 0.1, "Sample pct.")
-tf.app.flags.DEFINE_float("dev_tiny_sample_pct", 1, "Sample pct.")
-tf.app.flags.DEFINE_float("span_l2", 0.0001, "Span l2 loss regularization constant")
+tf.app.flags.DEFINE_bool("grad_clip", True, "whether or not to clip the gradients")
+tf.app.flags.DEFINE_float("l2_lambda", 0.0001, "lambda constant for regularization")
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -120,33 +116,35 @@ def pad_sequences(sequences, maxlen=None, dtype='int32',
             raise ValueError('Padding type "%s" not understood' % padding)
     return x
 
-def get_mask(vectors, max_length):
-    res = []
-    for vector in vectors:
-        trulen = len(vector)
-        padlen = max_length - trulen
-        res.append([1]*trulen + [0]*padlen)
-    return pad_sequences(res, maxlen=max_length, value=0, padding="post" )
 
-def load_dataset(*filenames):
-    num_lines = sum(1 for line in open(filenames[-1]))
-    def generate_batch(batchsize):
-        files = [open(f) for f in filenames]
-        batch = []
-        for i in range(num_lines):
-            example = []
-            for f in files:
-                int_list = [int(x) for x in f.readline().split()]
-                example.append(int_list)
-            batch.append(example)
-            if batchsize != -1:
-                if len(batch) == batchsize:
-                    yield batch, num_lines
-                    #return # for speed
-                    batch = []
-        if len(batch) > 0:
-            yield batch, num_lines
-    return generate_batch
+def load_data(data_dir, data_subset):
+    path = data_dir + "/" + data_subset
+    #raw answer can be fetched using indices and raw paragraphs
+    p, q, p_len, q_len, a_s, a_e, p_raw = ([] for i in range(7))
+    with open(path + ".ids.question") as f:
+        for line in f:
+            q.append(line.split())
+            q_len.append(len(line.split()))
+        q = pad_sequences(q, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
+
+    with open(path + ".ids.context") as f:
+        for line in f:
+            p.append(line.split())
+            p_len.append(len(line.split()))
+        p =  pad_sequences(p, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
+
+    with open(path + ".span") as f:
+        for line in f:
+            start_index, end_index =  [int(x) for x in  line.split()]
+            a_s.append(start_index)
+            a_e.append(end_index)
+            #A_len.append(end_index - start_index + 1)
+    with open(path + ".context") as f:
+        for line in f:
+            p_raw.append(line.split())
+
+    return p, q, p_len, q_len, a_s, a_e, p_raw
+
 
 def main(_):
     if not os.path.exists(FLAGS.log_dir):
@@ -161,35 +159,19 @@ def main(_):
     vocab_path = FLAGS.vocab_path or pjoin(FLAGS.data_dir, "vocab.dat")
     vocab, rev_vocab = initialize_vocab(vocab_path)
 
-
+    '''
     # load data sets
-    q_train, p_train, a_s_train, a_e_train, p_raw_train, a_raw_train = load_data(FLAGS.data_dir, "train")
-    q_dev, p_dev, a_s_dev, a_e_dev, p_raw_dev, A_raw_dev = load_data(FLAGS.data_dir, "val")
+    p_train, q_train,p_len_train, q_len_train, a_s_train, a_e_train, p_raw_train = load_data(FLAGS.data_dir, "train")
+    q_dev, p_dev,p_len_dev, q_len_dev, a_s_dev, a_e_dev, p_raw_dev = load_data(FLAGS.data_dir, "val")
     #q_test, p_test, A_start_test, A_end_test = load_data(FLAGS.data_dir, "test")
 
-    # see some data
-    logger.info("Training samples read... %s" % (len(q_train)))
-    logger.info("Dev samples read... %s" % (len(q_dev)))
-    # logger.info("Before Padding: \n q_train[0]: %s \n p_train[0]: %s \n a_s_train[0]: %s \n a_e_train[0]: %s" % (q_train[0], p_train[0], a_s_train[0], a_e_train[0]))
+    train_data = zip(p_train, q_train, a_s_train, a_e_train, p_raw_train)
 
-    # pad the data at load-time. So, we don't need to do any masking later!!!
-    # ref: https://keras.io/preprocessing/sequence/
-    # if len < maxlen, pad with specified val
-    # elif len > maxlen, truncate
-    q_mask_train = get_mask(q_train, FLAGS.question_size)
-    p_mask_train = get_mask(p_train, FLAGS.paragraph_size)
-    q_train = pad_sequences(q_train, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
-    p_train = pad_sequences(p_train, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
-    train_data = zip(p_train, q_train, a_s_train, a_e_train, p_mask_train, q_mask_train, p_raw_train, a_raw_train)
+    dev_data = zip(p_dev, q_dev, a_s_dev, a_e_dev, p_raw_dev)
+    '''
+    train_data = zip(*load_data(FLAGS.data_dir, "val"))
+    dev_data = zip(*load_data(FLAGS.data_dir, "val"))
 
-    # see the effect of padding
-    # logger.info("After Padding: \n q_train[0]: %s \n p_train[0]: %s \n a_s_train[0]: %s \n a_e_train[0]: %s" % (q_train[0], p_train[0], a_s_train[0], a_e_train[0]))
-    # repeat on dev and test set
-    q_mask_dev = get_mask(q_dev, FLAGS.question_size)
-    p_mask_dev = get_mask(p_dev, FLAGS.paragraph_size)
-    q_dev = pad_sequences(q_dev, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
-    p_dev = pad_sequences(p_dev, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
-    dev_data = zip(p_dev, q_dev, a_s_dev, a_e_dev, p_mask_dev, q_mask_dev, p_raw_dev, A_raw_dev)
 
 
     global_train_dir = '/tmp/cs224n-squad-train'
@@ -219,16 +201,6 @@ def main(_):
             qa = QASystem(FLAGS, pretrained_embeddings, vocab_dim=len(vocab.keys()))
 
             initialize_model(sess, qa, train_dir)
-
-            # a reasonable model should perhaps give decent results (f1 in double digits) even with training on smaller set of train_data
-            if FLAGS.tiny_sample:
-                sample_pct = FLAGS.tiny_sample_pct # sample sample_pct % from train and test for local dev
-                sam_train =  np.random.choice(range(len(train_data)), int(sample_pct/100*len(train_data)))
-                # no need to sample dev
-                sam_dev =  range(len(dev_data)) #np.random.choice(range(len(dev_data)), int(FLAGS.dev_tiny_sample_pct/100*len(dev_data)))
-                # small sample
-                train_data = [train_data[i] for i in sam_train]
-                dev_data = [dev_data[i] for i in sam_dev]
 
             qa.train(sess, train_data, dev_data)
 
