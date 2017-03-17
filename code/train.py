@@ -19,10 +19,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_float("learning_rate", 0.00001, "Learning rate.")
-tf.app.flags.DEFINE_float("dropout", 0.15, "Fraction of units randomly dropped on non-recurrent connections.")
+tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
+tf.app.flags.DEFINE_float("dropout", 0.10, "Fraction of units randomly dropped on non-recurrent connections.")
 tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
+tf.app.flags.DEFINE_integer("epochs", 30, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
 tf.app.flags.DEFINE_string("data_dir", "data/squad", "SQuAD directory (default ./data/squad)")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory to save the model parameters (default: ./train).")
@@ -32,7 +32,7 @@ tf.app.flags.DEFINE_string("vocab_path", "data/squad/vocab.dat", "Path to vocab 
 tf.app.flags.DEFINE_string("embed_path", "", "Path to the trimmed GLoVe embedding (default: ./data/squad/glove.trimmed.{vocab_dim}.npz)")
 
 tf.app.flags.DEFINE_integer("question_size", 60, "Max Question Length")
-tf.app.flags.DEFINE_integer("paragraph_size", 350, "Max Context Paragraph Length")
+tf.app.flags.DEFINE_integer("paragraph_size", 360, "Max Context Paragraph Length")
 tf.app.flags.DEFINE_integer("hidden_size", 200, "size of hidden layer h_i")
 tf.app.flags.DEFINE_integer("perspective_units", 50, "Number of lstm representation h_i")
 tf.app.flags.DEFINE_bool("grad_clip", True, "whether or not to clip the gradients")
@@ -67,8 +67,8 @@ def initialize_vocab(vocab_path):
     else:
         raise ValueError("Vocabulary file %s not found.", vocab_path)
 
-def pad_sequences(sequences, maxlen=None, dtype='int32',
-                  padding='pre', truncating='pre', value=0.):
+def pad_sequences(sequences, maxlen=None, dtype='int32', padding='pre', truncating='pre', value=0.):
+    # adapted from keras documentation
 
     if not hasattr(sequences, '__len__'):
         raise ValueError('`sequences` must be iterable.')
@@ -124,21 +124,37 @@ def load_data(data_dir, data_subset):
     with open(path + ".ids.question") as f:
         for line in f:
             q.append(line.split())
-            q_len.append(len(line.split()))
+            #q_len.append(max(FLAGS.question_size, len(line.split())))
+            q_len.append(min(FLAGS.question_size, len(line.split())))
         q = pad_sequences(q, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
 
     with open(path + ".ids.context") as f:
         for line in f:
             p.append(line.split())
-            p_len.append(len(line.split()))
-        p =  pad_sequences(p, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
+            p_len.append(min(FLAGS.paragraph_size, len(line.split())))
+        p = pad_sequences(p, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
 
     with open(path + ".span") as f:
         for line in f:
-            start_index, end_index =  [int(x) for x in  line.split()]
+            start_index, end_index = [int(x) for x in line.split()]
+            '''
+            if start_index >= FLAGS.paragraph_size:
+                a_s.append(0)
+            else:
+                a_s.append(start_index)
+            if end_index >= FLAGS.paragraph_size:
+                a_e.append(FLAGS.paragraph_size-1)
+            else:
+                a_e.append(end_index)
+            '''
+            if start_index > FLAGS.paragraph_size:
+                a_len = end_index - start_index + 1
+                start_index = 0
+                end_index = a_len
+            if start_index < FLAGS.paragraph_size and end_index > FLAGS.paragraph_size - 1:
+                end_index = FLAGS.paragraph_size - 1
             a_s.append(start_index)
             a_e.append(end_index)
-            #A_len.append(end_index - start_index + 1)
     with open(path + ".context") as f:
         for line in f:
             p_raw.append(line.split())

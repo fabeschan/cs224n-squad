@@ -15,6 +15,7 @@ import StringIO
 from collections import defaultdict, Counter, OrderedDict
 import numpy as np
 from numpy import array, zeros, allclose
+import random
 
 logger = logging.getLogger("hw3")
 logger.setLevel(logging.DEBUG)
@@ -412,9 +413,12 @@ def minibatches(data, batch_size, shuffle=True):
     batches = [np.array(col) for col in zip(*data)]
     return get_minibatches(batches, batch_size, shuffle)
 
-def get_minibatches(data, batch_size=-1):
+def get_minibatches(data, batch_size=-1, shuffle=True):
     batch = []
-    for i in range(len(data)):
+    indices = range(len(data))
+    if shuffle:
+        random.shuffle(indices)
+    for i in indices:
         batch.append(data[i])
         if len(batch) == batch_size:
             yield batch
