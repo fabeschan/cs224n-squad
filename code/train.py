@@ -33,7 +33,7 @@ tf.app.flags.DEFINE_string("embed_path", "", "Path to the trimmed GLoVe embeddin
 
 tf.app.flags.DEFINE_integer("question_size", 60, "Max Question Length")
 tf.app.flags.DEFINE_integer("paragraph_size", 400, "Max Context Paragraph Length")
-tf.app.flags.DEFINE_integer("hidden_size", 200, "size of hidden layer h_i")
+tf.app.flags.DEFINE_integer("hidden_size", 150, "size of hidden layer h_i")
 tf.app.flags.DEFINE_integer("perspective_units", 50, "Number of lstm representation h_i")
 tf.app.flags.DEFINE_bool("grad_clip", True, "whether or not to clip the gradients")
 tf.app.flags.DEFINE_float("l2_lambda", 0.0001, "lambda constant for regularization")

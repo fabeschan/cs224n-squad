@@ -50,9 +50,6 @@ def get_optimizer(opt):
 
 class QASystem(object):
     def __init__(self, FLAGS, pretrained_embeddings, vocab_dim, *args):
-        #self.train_dir = FLAGS.train_dir
-        #self.pretrained_embeddings = pretrained_embeddings
-
         self.vocab_dim = vocab_dim
         self.pretrained_embeddings = pretrained_embeddings
         self.model_output = FLAGS.train_dir + "/model.weights"
@@ -66,28 +63,32 @@ class QASystem(object):
                 self.setup_optimizer()
 
     # http://www.aclweb.org/anthology/D15-1166
-    def setup_attention_layer(self, pp, qq):
-        #qq = tf.transpose(qq, perm=[0, 2, 1])
-        #pp = tf.transpose(pp, perm=[0, 2, 1])
+    def setup_attention_layer(self, D, Q):
+        Q = tf.transpose(Q, perm=[0, 2, 1])
+        D = tf.transpose(D, perm=[0, 2, 1])
         # i.e. use dot-product scoring
-        print("qq shape", qq.get_shape())
-        s = tf.matmul(qq, tf.transpose(pp, perm=[0, 2, 1]))  # much more complexity needed here (for example softmax scaling etc.)
+        print("Q shape", Q.get_shape())
+        L = tf.matmul(tf.transpose(D, perm=[0, 2, 1]), Q)  # much more complexity needed here (for example softmax scaling etc.)
         #s_max = tf.reduce_max(s, axis = 1, keep_dims=True)
         #s_min= tf.reduce_min(s, axis = 1, keep_dims=True)
         #s_mean = tf.reduce_mean(s, axis = 1, keep_dims=True)
         #s_enrich = tf.concat([s_max, s_min, s_mean], 1)
 
-        print("s shape:",s.get_shape())
-        alphap = tf.nn.softmax(s, dim=1) # should be column-wise as sum(alpha_i) per paragraph-word is 1
-        print("alphap shape:",alphap.get_shape())
-        # Q*P
-        alphaq = tf.nn.softmax(tf.transpose(s, perm=[0,2,1]), dim=1) # should be column-wise as sum(alpha_i) per question-word is 1
-        # P*Q
+        print("L shape:",L.get_shape())
+        A_Q = tf.nn.softmax(L, dim=1) # should be column-wise as sum(alpha_i) per paragraph-word is 1
+        print("A_Q shape:", A_Q.get_shape())
+        A_D = tf.nn.softmax(tf.transpose(L, perm=[0,2,1]), dim=1) # should be column-wise as sum(alpha_i) per question-word is 1
 
-        #print(alpha.get_shape()); print(qq.get_shape())
-        #cp = tf.matmul(tf.transpose(qq, perm = [0, 2, 1]), alphap)
-        cq = tf.matmul(tf.transpose(pp, perm = [0, 2, 1]), alphaq)
-        print("cq shape",cq.get_shape())
+        C_Q = tf.matmul(D, A_Q)
+        print("C_Q shape", C_Q.get_shape())
+
+        '''
+        Q shape (?, 300, 60)
+        L shape: (?, 400, 60)
+        A_Q shape: (?, 400, 60)
+        C_Q shape (?, 300, 60)
+        C_D shape: (?, 600, 400)
+
         # Add filter layer
         filterLayer = False
         if filterLayer:
@@ -98,12 +99,12 @@ class QASystem(object):
             p_emb_p = tf.multiply(rel, self.p_emb)
         else:
             p_emb_p = pp
+        '''
+        p_emb_p = D
 
-        q_concat = tf.concat([cq, tf.transpose(qq, perm=[0, 2, 1])], 1)
-
-        c_d = tf.matmul(q_concat, alphap) # 2h*p
-        p_concat = tf.concat([tf.transpose(p_emb_p, perm=[0, 2, 1]), c_d], 1)
-
+        C_D = tf.matmul(tf.concat([C_Q, Q], 1), A_D)
+        print("C_D shape:",C_D.get_shape())
+        p_concat = tf.concat([p_emb_p, C_D], 1)
         return p_concat #tf.concat([s, s_enrich, tf.transpose(p_emb_p, perm = [0, 2, 1]) ], 1) #c, tf.transpose(pp, perm = [0, 2, 1]),
 
     def setup_placeholder(self):
