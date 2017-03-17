@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
 tf.app.flags.DEFINE_float("dropout", 0.10, "Fraction of units randomly dropped on non-recurrent connections.")
-tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during training.")
+tf.app.flags.DEFINE_integer("batch_size", 90, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 30, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
 tf.app.flags.DEFINE_string("data_dir", "data/squad", "SQuAD directory (default ./data/squad)")
@@ -32,7 +32,7 @@ tf.app.flags.DEFINE_string("vocab_path", "data/squad/vocab.dat", "Path to vocab 
 tf.app.flags.DEFINE_string("embed_path", "", "Path to the trimmed GLoVe embedding (default: ./data/squad/glove.trimmed.{vocab_dim}.npz)")
 
 tf.app.flags.DEFINE_integer("question_size", 60, "Max Question Length")
-tf.app.flags.DEFINE_integer("paragraph_size", 360, "Max Context Paragraph Length")
+tf.app.flags.DEFINE_integer("paragraph_size", 350, "Max Context Paragraph Length")
 tf.app.flags.DEFINE_integer("hidden_size", 200, "size of hidden layer h_i")
 tf.app.flags.DEFINE_integer("perspective_units", 50, "Number of lstm representation h_i")
 tf.app.flags.DEFINE_bool("grad_clip", True, "whether or not to clip the gradients")
@@ -147,7 +147,7 @@ def load_data(data_dir, data_subset):
             else:
                 a_e.append(end_index)
             '''
-            if start_index > FLAGS.paragraph_size:
+            if start_index >= FLAGS.paragraph_size:
                 a_len = end_index - start_index + 1
                 start_index = 0
                 end_index = a_len
@@ -155,6 +155,9 @@ def load_data(data_dir, data_subset):
                 end_index = FLAGS.paragraph_size - 1
             a_s.append(start_index)
             a_e.append(end_index)
+
+            assert(start_index < FLAGS.paragraph_size)
+            assert(end_index < FLAGS.paragraph_size)
     with open(path + ".context") as f:
         for line in f:
             p_raw.append(line.split())
