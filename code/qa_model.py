@@ -120,19 +120,6 @@ class QASystem(object):
             gradients, norms = tf.clip_by_global_norm(gradients, FLAGS.max_gradient_norm)
         self.norm = tf.global_norm(gradients)
         grads_and_vars = zip(gradients, variables)
-
-        '''
-        optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate)
-        params = tf.trainable_variables()
-
-        grads_and_vars = optimizer.compute_gradients(self.loss, params)
-        grads = [x[0] for x in grads_and_vars]
-        if FLAGS.grad_clip:
-            grads, _ = tf.clip_by_global_norm(grads, FLAGS.max_gradient_norm)
-
-        self.norm = tf.global_norm(grads)
-        grads_and_vars = zip(grads, params)
-        '''
         self.train_op = optimizer.apply_gradients(grads_and_vars)
 
     def setup_system(self):
@@ -403,7 +390,7 @@ class QASystem(object):
             p, q, p_len, q_len, a_s, a_e, _ = zip(*batch)
             #if len(batch) != FLAGS.batch_size:
             #    continue
-            with Timer("batch train"):
+            with Timer("train batch {}".format(i)):
                 loss, norm = self.train_batch(sess, p, q, p_len, q_len, a_s, a_e)
                 logging.info("train loss: {}, norm: {}".format(loss, norm))
         print("")

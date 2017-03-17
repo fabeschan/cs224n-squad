@@ -19,7 +19,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
+tf.app.flags.DEFINE_float("learning_rate", 0.00001, "Learning rate.")
 tf.app.flags.DEFINE_float("dropout", 0.15, "Fraction of units randomly dropped on non-recurrent connections.")
 tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
@@ -159,20 +159,8 @@ def main(_):
     vocab_path = FLAGS.vocab_path or pjoin(FLAGS.data_dir, "vocab.dat")
     vocab, rev_vocab = initialize_vocab(vocab_path)
 
-    '''
-    # load data sets
-    p_train, q_train,p_len_train, q_len_train, a_s_train, a_e_train, p_raw_train = load_data(FLAGS.data_dir, "train")
-    q_dev, p_dev,p_len_dev, q_len_dev, a_s_dev, a_e_dev, p_raw_dev = load_data(FLAGS.data_dir, "val")
-    #q_test, p_test, A_start_test, A_end_test = load_data(FLAGS.data_dir, "test")
-
-    train_data = zip(p_train, q_train, a_s_train, a_e_train, p_raw_train)
-
-    dev_data = zip(p_dev, q_dev, a_s_dev, a_e_dev, p_raw_dev)
-    '''
-    train_data = zip(*load_data(FLAGS.data_dir, "val"))
+    train_data = zip(*load_data(FLAGS.data_dir, "train"))
     dev_data = zip(*load_data(FLAGS.data_dir, "val"))
-
-
 
     global_train_dir = '/tmp/cs224n-squad-train'
     # Adds symlink to {train_dir} from /tmp/cs224n-squad-train to canonicalize the
