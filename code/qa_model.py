@@ -83,12 +83,6 @@ class QASystem(object):
         print("C_Q shape", C_Q.get_shape())
 
         '''
-        Q shape (?, 300, 60)
-        L shape: (?, 400, 60)
-        A_Q shape: (?, 400, 60)
-        C_Q shape (?, 300, 60)
-        C_D shape: (?, 600, 400)
-
         # Add filter layer
         filterLayer = False
         if filterLayer:
@@ -235,6 +229,7 @@ class QASystem(object):
 
         # MPCM
 
+        '''
         # Add filter layer
         with tf.variable_scope("encode_filter"):
             filterLayer = True
@@ -339,6 +334,12 @@ class QASystem(object):
         # multiply probabilities
         self.yp_start = tf.multiply(self.yp_start_1, self.yp_start_2)
         self.yp_end = tf.multiply(self.yp_end_1, self.yp_end_2)
+        '''
+        self.logits_end = self.logits_end_1
+        self.logits_start = self.logits_start_1
+        # multiply probabilities
+        self.yp_start = self.yp_start_1
+        self.yp_end = self.yp_end_1
 
     def setup_loss(self):
         """
@@ -351,13 +352,14 @@ class QASystem(object):
         with vs.variable_scope("loss"):
             self.loss_start_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_1, labels=self.a_s))
             self.loss_end_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_1, labels=self.a_e))
-            self.loss_start_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_2, labels=self.a_s))
-            self.loss_end_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_2, labels=self.a_e))
+            #self.loss_start_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_2, labels=self.a_s))
+            #self.loss_end_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_2, labels=self.a_e))
             # compute span l2 loss
             a_s_p = tf.argmax(self.yp_start, axis=1)
             a_e_p = tf.argmax(self.yp_end, axis=1)
             self.loss_span = tf.reduce_mean(tf.nn.l2_loss(tf.cast(self.a_e - self.a_s + 1, tf.float32) - tf.cast(a_s_p - a_e_p, tf.float32)))
-            self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + FLAGS.l2_lambda * self.loss_span
+            #self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + FLAGS.l2_lambda * self.loss_span
+            self.loss = tf.add(self.loss_start_1, self.loss_end_1) + FLAGS.l2_lambda * self.loss_span
 
     def evaluate_answer(self, session,  p, q, p_len, q_len, a_s, a_e, sample=100):
         f1 = 0.0
