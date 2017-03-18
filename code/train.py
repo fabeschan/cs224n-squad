@@ -126,7 +126,6 @@ def load_data(data_dir, data_subset):
     with open(path + ".ids.question") as f:
         for line in f:
             q.append(line.split())
-            #q_len.append(max(FLAGS.question_size, len(line.split())))
             q_len.append(min(FLAGS.question_size, len(line.split())))
         q = pad_sequences(q, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
 
@@ -139,20 +138,10 @@ def load_data(data_dir, data_subset):
     with open(path + ".span") as f:
         for line in f:
             start_index, end_index = [int(x) for x in line.split()]
-            '''
-            if start_index >= FLAGS.paragraph_size:
-                a_s.append(0)
-            else:
-                a_s.append(start_index)
-            if end_index >= FLAGS.paragraph_size:
-                a_e.append(FLAGS.paragraph_size-1)
-            else:
-                a_e.append(end_index)
-            '''
             if start_index >= FLAGS.paragraph_size:
                 a_len = end_index - start_index + 1
-                start_index = 0
-                end_index = a_len
+                end_index = FLAGS.paragraph_size -1
+                start_index = end_index- a_len + 1
             if start_index < FLAGS.paragraph_size and end_index > FLAGS.paragraph_size - 1:
                 end_index = FLAGS.paragraph_size - 1
             a_s.append(start_index)

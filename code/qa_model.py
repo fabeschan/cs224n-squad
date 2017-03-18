@@ -64,7 +64,6 @@ class QASystem(object):
     def __init__(self, FLAGS, pretrained_embeddings, vocab_dim, *args):
         self.vocab_dim = vocab_dim
         self.pretrained_embeddings = pretrained_embeddings
-        self.model_output = FLAGS.train_dir + "/model.weights"
         self.initializer = tf.contrib.layers.xavier_initializer()
 
         with Timer("setup graph"):
@@ -150,9 +149,8 @@ class QASystem(object):
         # add embeddings for question and paragraph
         # could tune this to be not trainable to boost speed
         self.embedding_mat = tf.Variable(self.pretrained_embeddings, name="embed", dtype=tf.float32)
-
-        self.q_emb = tf.cast(tf.nn.embedding_lookup(self.embedding_mat, self.q), dtype=tf.float32)  # perhaps B-by-Q-by-d
-        self.p_emb = tf.cast(tf.nn.embedding_lookup(self.embedding_mat, self.p), dtype=tf.float32)  # perhaps B-by-P-by-d
+        self.q_emb = tf.nn.embedding_lookup(self.embedding_mat, self.q)
+        self.p_emb = tf.nn.embedding_lookup(self.embedding_mat, self.p)
 
         cell_p_fwd = self.cell(FLAGS.hidden_size, state_is_tuple=True)
         cell_q_fwd = self.cell(FLAGS.hidden_size, state_is_tuple=True)
@@ -392,13 +390,13 @@ class QASystem(object):
             #self.loss_start_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_2, labels=self.a_s))
             #self.loss_end_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_2, labels=self.a_e))
             # compute span l2 loss
-            a_s_p = tf.argmax(self.yp_start, axis=1)
-            a_e_p = tf.argmax(self.yp_end, axis=1)
-            self.loss_span = tf.reduce_mean(tf.nn.l2_loss(tf.cast(self.a_e - self.a_s + 1, tf.float32) - tf.cast(a_s_p - a_e_p, tf.float32)))
+            a_s_pred = tf.argmax(self.yp_start, axis=1)
+            a_e_pred = tf.argmax(self.yp_end, axis=1)
+            self.loss_span = tf.reduce_mean(tf.nn.l2_loss(tf.cast(self.a_e - self.a_s + 1, tf.float32) - tf.cast(a_e_pred - a_s_pred + 1, tf.float32)))
             #self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + FLAGS.l2_lambda * self.loss_span
             self.loss = tf.add(self.loss_start_1, self.loss_end_1) + FLAGS.l2_lambda * self.loss_span
 
-    def evaluate_answer(self, session,  p, q, p_len, q_len, a_s, a_e, sample=100):
+    def evaluate_answer(self, session, p, q, p_len, q_len, a_s, a_e, sample=100):
         f1 = 0.0
         em = 0.0
 
@@ -430,46 +428,58 @@ class QASystem(object):
         (s_index, e_start) = sess.run([self.yp_start, self.yp_end], feed_dict=feed)
         return (s_index, e_start)
 
+    def eval_batch(self, sess, p, q, p_len, q_len, a_s, a_e):
+        feed = self.create_feed_dict( p, q, p_len, q_len, a_s=a_s,a_e=a_e, dropout=1.0)
+        loss, norm, ys, ye = sess.run([self.loss, self.norm,self.yp_start, self.yp_end], feed_dict=feed)
+        return loss, norm, ys, ye
+
     def train_batch(self, sess, p, q, p_len, q_len, a_s, a_e):
         feed = self.create_feed_dict( p, q, p_len, q_len, a_s=a_s,a_e=a_e, dropout=(1.0-FLAGS.dropout))
         _, loss, norm = sess.run([self.train_op, self.loss, self.norm], feed_dict=feed)
         return loss, norm
 
-    def run_epoch(self, sess, train_examples, dev_set):
-        for i, batch in enumerate(get_minibatches(train_examples, FLAGS.batch_size)):
-            p, q, p_len, q_len, a_s, a_e, _ = zip(*batch)
-            #if len(batch) != FLAGS.batch_size:
-            #    continue
-            with Timer("train batch {}".format(i)):
-                loss, norm = self.train_batch(sess, p, q, p_len, q_len, a_s, a_e)
-                logging.info("train loss: {}, norm: {}".format(loss, norm))
-        print("")
-
-        logging.info("Evaluating on development data")
-        f1 = exact_match = total = 0
-        for i, batch in enumerate(get_minibatches(dev_set, FLAGS.batch_size)):
-            # Only use P and Q
+    def get_eval(dataset, batch_size, sample=True):
+        ''' if sample, take first batch only '''
+        f1 = em = total = 0
+        for i, batch in enumerate(get_minibatches(dataset, batch_size, shuffle=True)):
             p, q, p_len, q_len, a_s, a_e, p_raw = zip(*batch)
-            (ys, ye) = self.predict_batch(sess, p, q, p_len, q_len)
+            loss, norm, ys, ye = self.eval_batch(sess, p, q, p_len, q_len)
             a_s_pred = np.argmax(ys, axis=1)
             a_e_pred = np.argmax(ye, axis=1)
             for i in range(len(batch)):
                 #predicted a_s and a_e
                 s_pred = a_s_pred[i]
                 e_pred = a_e_pred[i]
+
                 #ground truth lables
                 a_raw = ' '.join(p_raw[i][a_s[i]:a_e[i]+1])
-
                 pred_raw = ' '.join(p_raw[i][s_pred:e_pred+1])
+`
                 f1 += f1_score(pred_raw, a_raw)
-                exact_match += exact_match_score(pred_raw, a_raw)
+                em += exact_match_score(pred_raw, a_raw)
                 total += 1
+            if sample:
+                break
 
-        exact_match = 100.0 * exact_match / total
+        em = 100.0 * em / total
         f1 = 100.0 * f1 / total
-        logging.info("Entity level F1/EM: %.2f/%.2f", f1, exact_match)
+        return (f1, em, loss, norm)
 
-        return f1
+    def run_epoch(self, sess, train_data, dev_data):
+        for i, batch in enumerate(get_minibatches(train_data, FLAGS.batch_size)):
+            p, q, p_len, q_len, a_s, a_e, _ = zip(*batch)
+            if i%FLAGS.sample_every == 0:
+                f1, exact_match, loss, norm = get_eval(train_data, FLAGS.sample_size, True)
+                logging.info("Batch {} Train set sample_loss, F1, EM, norm: {}".format(i, (loss, f1, exact_match, norm)))
+
+                f1, exact_match, loss, norm = get_eval(dev_data, FLAGS.sample_size, False)
+                logging.info("Batch {} Val set loss, F1, EM, norm: {}".format(i, (loss, f1, exact_match, norm)))
+            #if len(batch) != FLAGS.batch_size:
+            #    continue
+            with Timer("Train batch {}".format(i)):
+                loss, norm = self.train_batch(sess, p, q, p_len, q_len, a_s, a_e)
+                logging.info("Train loss: {}, norm: {}".format(loss, norm))
+        print()
 
     def train(self, session, train_data, dev_data):
         saver = tf.train.Saver()
@@ -477,14 +487,16 @@ class QASystem(object):
         for epoch in range(FLAGS.epochs):
             with Timer("training epoch {}/{}".format(epoch + 1, FLAGS.epochs)):
                 logging.info("Epoch %d out of %d", epoch + 1, FLAGS.epochs)
-                score = self.run_epoch(session, train_data, dev_data)
-                if score > best_score:
-                    best_score = score
-                    if saver:
-                        logging.info("New best score! Saving model in %s", self.model_output)
-                        saver.save(session, self.model_output)
-                print("")
-            logging.info("Best f1 score detected this run : %s ", best_score)
+                self.run_epoch(session, train_data, dev_data)
+                f1, exact_match, loss, _ = get_eval(dev_data, FLAGS.batch_size, False)
+                logging.info("Epoch {} Val loss, F1, EM: {}".format(epoch, (loss, f1, exact_match)))
+
+            if self.saver:
+                epoch_output = pjoin(train_dir, 'epoch{}'.format(epoch+self.config.start_epoch), "model.weights")
+                if not os.path.exists(epoch_output):
+                    os.makedirs(epoch_output)
+                logging.info("Saving model epoch %d in %s", epoch+1, epoch_output)
+                self.saver.save(session, epoch_output)
         return best_score
 
 
