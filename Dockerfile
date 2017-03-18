@@ -1,4 +1,4 @@
-FROM tensorflow/tensorflow:1.0.0-gpu
+FROM tensorflow/tensorflow:nightly-gpu
 RUN pip install joblib
 RUN pip install nltk
 RUN pip install tqdm

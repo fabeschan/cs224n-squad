@@ -1,6 +1,6 @@
 docker rm run-project
 nvidia-docker run \
-    -it \
+    -d \
     --name run-project \
     --workdir=/opt \
     -v `pwd`:/opt \

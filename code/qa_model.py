@@ -75,6 +75,8 @@ class QASystem(object):
                 self.setup_system()
                 self.setup_loss()
                 self.setup_optimizer()
+        self.saver = tf.train.Saver()
+
     ## attention layer from paper coattention
     def setup_attention_layer(self, D, Q):
         #add_column_Q = tf.zeros([None, FLAGS.question_size, 1])
@@ -181,10 +183,11 @@ class QASystem(object):
 
         self.coatt_layer = self.setup_attention_layer(self.pp, self.qq)
 
-        cell_final = self.cell(FLAGS.hidden_size*4, state_is_tuple=True)
+        cell_final_fw = self.cell(FLAGS.hidden_size*4, state_is_tuple=True)
+        cell_final_bw = self.cell(FLAGS.hidden_size*4, state_is_tuple=True)
         U, _ = tf.nn.bidirectional_dynamic_rnn(
-            cell_fw=cell_final,
-            cell_bw=cell_final,
+            cell_fw=cell_final_fw,
+            cell_bw=cell_final_bw,
             inputs=tf.transpose(self.coatt_layer, perm = [0, 2, 1]),
             sequence_length=self.p_len ,
             dtype=tf.float32
@@ -290,8 +293,8 @@ class QASystem(object):
 
     def predict_batch(self, sess, p, q, p_len, q_len):
         feed = self.create_feed_dict(p, q, p_len, q_len)
-        (s_index, e_start) = sess.run([self.yp_start, self.yp_end], feed_dict=feed)
-        return (s_index, e_start)
+        a_s, a_e = sess.run([self.yp_start, self.yp_end], feed_dict=feed)
+        return a_s, a_e
 
     def eval_batch(self, sess, p, q, p_len, q_len, a_s, a_e):
         feed = self.create_feed_dict( p, q, p_len, q_len, a_s=a_s,a_e=a_e, dropout=1.0)
@@ -346,7 +349,6 @@ class QASystem(object):
         print()
 
     def train(self, session, train_data, dev_data):
-        self.saver = tf.train.Saver()
         best_score = 0.0
         for epoch in range(FLAGS.epochs):
             with Timer("training epoch {}/{}".format(epoch + 1, FLAGS.epochs)):

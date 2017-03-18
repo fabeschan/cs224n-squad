@@ -14,6 +14,7 @@ import numpy as np
 # for load, pad data
 from qa_data import PAD_ID
 
+from utils import pad_sequences
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -39,11 +40,9 @@ tf.app.flags.DEFINE_integer("hidden_size", 200, "size of hidden layer h_i")
 tf.app.flags.DEFINE_integer("sample_every", 100, "every 100 batch to plot one result")
 tf.app.flags.DEFINE_integer("sample_size", 100, "size of sample")
 
-
 tf.app.flags.DEFINE_integer("perspective_units", 50, "Number of lstm representation h_i")
 tf.app.flags.DEFINE_bool("grad_clip", True, "whether or not to clip the gradients")
 tf.app.flags.DEFINE_float("l2_lambda", 0.0001, "lambda constant for regularization")
-
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -53,7 +52,7 @@ def initialize_model(session, model, train_dir):
     v2_path = ckpt.model_checkpoint_path + ".index" if ckpt else ""
     if ckpt and (tf.gfile.Exists(ckpt.model_checkpoint_path) or tf.gfile.Exists(v2_path)):
         logging.info("Reading model parameters from %s" % ckpt.model_checkpoint_path)
-        tf.train.Saver().restore(session, ckpt.model_checkpoint_path)
+        model.saver.restore(session, ckpt.model_checkpoint_path)
     else:
         logging.info("Created model with fresh parameters.")
         session.run(tf.global_variables_initializer())
@@ -73,59 +72,9 @@ def initialize_vocab(vocab_path):
     else:
         raise ValueError("Vocabulary file %s not found.", vocab_path)
 
-def pad_sequences(sequences, maxlen=None, dtype='int32', padding='pre', truncating='pre', value=0.):
-    # adapted from keras documentation
 
-    if not hasattr(sequences, '__len__'):
-        raise ValueError('`sequences` must be iterable.')
-    lengths = []
-    for x in sequences:
-        if not hasattr(x, '__len__'):
-            raise ValueError('`sequences` must be a list of iterables. '
-                             'Found non-iterable: ' + str(x))
-        lengths.append(len(x))
-
-    num_samples = len(sequences)
-    if maxlen is None:
-        maxlen = np.max(lengths)
-
-    # take the sample shape from the first non empty sequence
-    # checking for consistency in the main loop below.
-    sample_shape = tuple()
-    for s in sequences:
-        if len(s) > 0:
-            sample_shape = np.asarray(s).shape[1:]
-            break
-
-    x = (np.ones((num_samples, maxlen) + sample_shape) * value).astype(dtype)
-    for idx, s in enumerate(sequences):
-        if not len(s):
-            continue  # empty list/array was found
-        if truncating == 'pre':
-            trunc = s[-maxlen:]
-        elif truncating == 'post':
-            trunc = s[:maxlen]
-        else:
-            raise ValueError('Truncating type "%s" not understood' % truncating)
-
-        # check `trunc` has expected shape
-        trunc = np.asarray(trunc, dtype=dtype)
-        if trunc.shape[1:] != sample_shape:
-            raise ValueError('Shape of sample %s of sequence at position %s is different from expected shape %s' %
-                             (trunc.shape[1:], idx, sample_shape))
-
-        if padding == 'post':
-            x[idx, :len(trunc)] = trunc
-        elif padding == 'pre':
-            x[idx, -len(trunc):] = trunc
-        else:
-            raise ValueError('Padding type "%s" not understood' % padding)
-    return x
-
-
-def load_data(data_dir, data_subset):
-    path = data_dir + "/" + data_subset
-    #raw answer can be fetched using indices and raw paragraphs
+def load_data(data_dir, data_file):
+    path = data_dir + "/" + data_file
     p, q, p_len, q_len, a_s, a_e, p_raw = ([] for i in range(7))
     with open(path + ".ids.question") as f:
         for line in f:
@@ -173,7 +122,7 @@ def main(_):
     vocab_path = FLAGS.vocab_path or pjoin(FLAGS.data_dir, "vocab.dat")
     vocab, rev_vocab = initialize_vocab(vocab_path)
 
-    train_data = zip(*load_data(FLAGS.data_dir, "train"))
+    train_data = zip(*load_data(FLAGS.data_dir, "val"))
     dev_data = zip(*load_data(FLAGS.data_dir, "val"))
 
     global_train_dir = '/tmp/cs224n-squad-train'
