@@ -68,7 +68,8 @@ class QASystem(object):
         #add_column_D = tf.zeros([FLAGS.paragraph_size, 1])
         Q = tf.transpose(Q, perm=[0, 2, 1])
         # add tanh to Q
-        Q = tf.nn.tanh(Q)
+        #Q = tf.nn.tanh(Q)
+        # softmax layer
         D = tf.transpose(D, perm=[0, 2, 1])
         # i.e. use dot-product scoring
         print("Q shape", Q.get_shape())
@@ -206,25 +207,47 @@ class QASystem(object):
         print("U", U.get_shape())
         #lstm_final = tf.transpose(self.att, perm=[0, 2, 1])
         U = tf.nn.dropout(U, self.dropout)
+        U_reshape = tf.reshape(U, shape=[-1,FLAGS.hidden_size*8])
+
+        # softmax layer
+        W_start = tf.get_variable("W_start", shape=[8*FLAGS.hidden_size, 1], initializer=self.initializer)
+        b_start = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
+        self.logits_start_1 = tf.reshape(tf.matmul(U_reshape, W_start), shape=[-1, FLAGS.paragraph_size]) + b_start
+        print ("logits", self.logits_start_1)
+        self.logits_start = tf.nn.softmax(self.logits_start_1, -1)
+        self.yp_start = self.logits_start
+        #self.U_s_index = tf.argmax(self.logits_start,1)
+
+        W_end = tf.get_variable("W_end", shape=[8*FLAGS.hidden_size, 1], initializer=self.initializer)
+        b_end = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
+        self.logits_end_1 = (tf.reshape(tf.matmul(U_reshape, W_end), shape=[-1, FLAGS.paragraph_size]) + b_end)
+        self.logits_end = tf.nn.softmax(self.logits_end_1, -1)
+        #self.U_e_index = tf.argmax(self.logits_end,1)
+        self.yp_end = self.logits_end
+
+        '''
+        U_s_e = tf.gather_nd(U, indices = [[U_s_index, U_e_index]])
+        print ("U_s_e",U_s_e.get_shape())
 
         cell_decode = tf.contrib.rnn.BasicLSTMCell(FLAGS.hidden_size*2)
 
         with tf.variable_scope("decode"):
-            h, _ = tf.nn.dynamic_rnn(
+            h_1, _ = tf.nn.dynamic_rnn(
                 cell=cell_decode,
-                inputs=U,
-                sequence_length=self.p_len ,
+                inputs=U_s_e,
+                sequence_length=self.p_len,
                 dtype=tf.float32
             )
 
-        print ("U", U.get_shape())
-        print ("h",h.get_shape())
+        r_input_1 = tf.concat([h_1, U_s_e], 2)
         W_D = tf.get_variable("W_D", shape=[FLAGS.hidden_size*10, FLAGS.hidden_size*2], initializer=self.initializer)
-        r_input = tf.concat([h, U], 2)
-        r_input = tf.reshape(r_input, shape=[-1, FLAGS.paragraph_size, FLAGS.hidden_size*10])
+        r_input = tf.reshape(r_input, shape=[-1, FLAGS.hidden_size*10])
         print("r_input", r_input.get_shape())
         r = tf.nn.tanh(tf.matmul(r_input, W_D))
+        r = tf.tile(r, multiples=tf.constant(FLAGS.paragraph_size))
+        print ("r", r.get_shape())
 
+        m1_input = tf.concat([U, r], )
         print("r ", r.get_shape())
         dim_final_layer = int(lstm_final.get_shape()[2])
         final_layer_ = tf.reshape(lstm_final, shape=[-1, dim_final_layer])
@@ -239,7 +262,7 @@ class QASystem(object):
         b_end = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
         self.logits_end_1 = (tf.reshape(tf.matmul(final_layer_, W_end), shape=[cur_batch_size, FLAGS.paragraph_size]) + b_end)
         self.yp_end_1 = tf.nn.softmax(self.logits_end_1)
-
+        '''
         # MPCM
 
         '''
@@ -348,19 +371,8 @@ class QASystem(object):
         self.yp_start = tf.multiply(self.yp_start_1, self.yp_start_2)
         self.yp_end = tf.multiply(self.yp_end_1, self.yp_end_2)
         '''
-        self.logits_end = self.logits_end_1
-        self.logits_start = self.logits_start_1
-        # multiply probabilities
-        self.yp_start = self.yp_start_1
-        self.yp_end = self.yp_end_1
-
     def setup_loss(self):
-        """
-        Set up your loss computation here
-        :return:
-        """
-
-        # may need to do some reshaping here
+        #may need to do some reshaping here
         # Someone replaced yp_start with logits_start in loss. Don't really follow the change. Setting it back to original.
         with vs.variable_scope("loss"):
             self.loss_start_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_1, labels=self.a_s))
@@ -403,8 +415,8 @@ class QASystem(object):
 
     def predict_batch(self, sess, p, q, p_len, q_len):
         feed = self.create_feed_dict(p, q, p_len, q_len)
-        (yp_start, yp_end) = sess.run([self.yp_start, self.yp_end], feed_dict=feed)
-        return (yp_start, yp_end)
+        (s_index, e_start) = sess.run([self.yp_start, self.yp_end], feed_dict=feed)
+        return (s_index, e_start)
 
     def train_batch(self, sess, p, q, p_len, q_len, a_s, a_e):
         feed = self.create_feed_dict( p, q, p_len, q_len, a_s=a_s,a_e=a_e, dropout=(1.0-FLAGS.dropout))
