@@ -480,7 +480,7 @@ class QASystem(object):
                 logging.info("[Batch {}] Train set sample_loss: {}, F1: {}, EM: {}, norm: {}".format(i+1, loss, f1, exact_match, norm))
 
                 f1, exact_match, loss, norm = self.get_eval(sess, dev_data, FLAGS.sample_size, False)
-                logging.info("[Batch {}] Val set loss: {}, F1: {}, EM: {}, norm: {}".format(i+1, (loss, f1, exact_match, norm)))
+                logging.info("[Batch {}] Val set loss: {}, F1: {}, EM: {}, norm: {}".format(i+1, loss, f1, exact_match, norm))
         print()
 
     def train(self, session, train_data, dev_data):
