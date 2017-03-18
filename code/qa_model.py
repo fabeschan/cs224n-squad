@@ -85,40 +85,26 @@ class QASystem(object):
         #Q = tf.nn.tanh(Q)
         # softmax layer
         D = tf.transpose(D, perm=[0, 2, 1])
-        # i.e. use dot-product scoring
         print("Q shape", Q.get_shape())
-        L = tf.matmul(tf.transpose(D, perm=[0, 2, 1]), Q)  # much more complexity needed here (for example softmax scaling etc.)
+        L = tf.matmul(tf.transpose(D, perm=[0, 2, 1]), Q)
         #s_max = tf.reduce_max(s, axis = 1, kddeep_dims=True)
         #s_min= tf.reduce_min(s, axis = 1, keep_dims=True)
         #s_mean = tf.reduce_mean(s, axis = 1, keep_dims=True)
         #s_enrich = tf.concat([s_max, s_min, s_mean], 1)
 
         print("L shape:",L.get_shape())
-        A_Q = tf.nn.softmax(L, dim=1) # should be column-wise as sum(alpha_i) per paragraph-word is 1
+        A_Q = tf.nn.softmax(L, dim=1)
         print("A_Q shape:", A_Q.get_shape())
-        A_D = tf.nn.softmax(tf.transpose(L, perm=[0,2,1]), dim=1) # should be column-wise as sum(alpha_i) per question-word is 1
+        A_D = tf.nn.softmax(tf.transpose(L, perm=[0,2,1]), dim=1)
 
         C_Q = tf.matmul(D, A_Q)
         print("C_Q shape", C_Q.get_shape())
 
-        '''
-        # Add filter layer
-        filterLayer = False
-        if filterLayer:
-            normed_p = tf.nn.l2_normalize(pp, dim=2) # normalize the 400 paragraph vectors
-            normed_q = tf.nn.l2_normalize(qq, dim=2)
-            cossim = tf.matmul(normed_p, tf.transpose(normed_q, [0, 2, 1]))
-            rel = tf.reduce_max(cossim, axis = 2, keep_dims = True)
-            p_emb_p = tf.multiply(rel, self.p_emb)
-        else:
-            p_emb_p = pp
-        '''
         p_emb_p = D
-
         C_D = tf.matmul(tf.concat([Q, C_Q], 1), A_D)
         print("C_D shape:",C_D.get_shape())
         p_concat = tf.concat([p_emb_p, C_D], 1)
-        return p_concat #tf.concat([s, s_enrich, tf.transpose(p_emb_p, perm = [0, 2, 1]) ], 1) #c, tf.transpose(pp, perm = [0, 2, 1]),
+        return p_concat
 
     def setup_placeholder(self):
         self.dropout = tf.placeholder(tf.float32, shape=())
@@ -134,7 +120,6 @@ class QASystem(object):
     def setup_optimizer(self):
         optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate) #.minimize(self.loss)
         variables = tf.trainable_variables()
-        #print([v.name for v in variables])
         gradients = optimizer.compute_gradients(self.loss, variables)
         gradients = [tup[0] for tup in gradients]
         if FLAGS.grad_clip:
@@ -170,7 +155,6 @@ class QASystem(object):
 
 
         print(("type1", (self.p_emb).get_shape()))
-        # build the hidden representation for the question (fwd and bwd and stack them together)
         with tf.variable_scope("encode_q"):
             (output_q_fw, output_q_bw), (output_state_fw_q, output_state_bw_q) = tf.nn.bidirectional_dynamic_rnn(
                 cell_fw=cell_q_fwd,
@@ -178,7 +162,6 @@ class QASystem(object):
                 inputs=self.q_emb,
                 sequence_length=self.q_len,
                 dtype=tf.float32
-
             )
             #print (output_q_fw.get_shape())
             #33print ("eeeeeeeeeeeeeeeeee", self.q_emb.get_shape())
@@ -194,18 +177,10 @@ class QASystem(object):
                 sequence_length=self.p_len,
                 dtype=tf.float32
             )
-            self.pp = tf.concat(outputs_p, 2)  # 2h_dim dimensional representation over each word in context-paragraph
+            self.pp = tf.concat(outputs_p, 2)
 
-        # need to mix qq and pp to get an attention matrix (question-words)-by-(paragraph-words) dimensional heat-map like matrix for each example
-        # this attention matrix will allow us to localize the interesting parts of the paragraph (they will peak) and help us identify the patch corresponding to answer
-        # visually the patch will ideally start at start-index and decay near end-index
         self.coatt_layer = self.setup_attention_layer(self.pp, self.qq)
 
-        #  predictions obtain by applying softmax over something (attention vals - should be something like dim(question-words)-by-dim(paragraph)
-        # currently a B-by-QMAXLEN-by-PMAXLEN tensor
-
-
-        # apply another LSTM layer before softmx
         cell_final = self.cell(FLAGS.hidden_size*4, state_is_tuple=True)
         U, _ = tf.nn.bidirectional_dynamic_rnn(
             cell_fw=cell_final,
@@ -217,7 +192,7 @@ class QASystem(object):
         #print ("ddddddddddddddddddddd", out_lstm.get_shape())
         #print(("dim_att", (self.coatt_layer).get_shape()))
         U = tf.concat(U, 2)
-        #lstm_final = tf.transpose(, perm = [0, 2, 1])  # 2*2h_dim dimensional representation over each word in context-paragraph
+        #lstm_final = tf.transpose(, perm = [0, 2, 1])
         print("U", U.get_shape())
         #lstm_final = tf.transpose(self.att, perm=[0, 2, 1])
         U = tf.nn.dropout(U, self.dropout)
@@ -279,8 +254,6 @@ class QASystem(object):
         '''
 
     def setup_loss(self):
-        #may need to do some reshaping here
-        # Someone replaced yp_start with logits_start in loss. Don't really follow the change. Setting it back to original.
         with vs.variable_scope("loss"):
             self.loss_start_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_1, labels=self.a_s))
             self.loss_end_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_1, labels=self.a_e))
@@ -294,8 +267,8 @@ class QASystem(object):
         f1 = 0.0
         em = 0.0
         for sample in samples: # sample of size 100
-            answers_dic = generate_answers(sess, model, sample_dataset, rev_vocab) # returns dictionary to be fed in evaluate
-            result = evaluate(sample_dataset_dic, answers_dic) # takes dictionaries of form nswers[uuid] = "real answer"
+            answers_dic = generate_answers(sess, model, sample_dataset, rev_vocab)
+            result = evaluate(sample_dataset_dic, answers_dic)
             f1 += result['f1']
             em += result['exact_match']
 
