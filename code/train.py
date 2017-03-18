@@ -122,7 +122,7 @@ def main(_):
     vocab_path = FLAGS.vocab_path or pjoin(FLAGS.data_dir, "vocab.dat")
     vocab, rev_vocab = initialize_vocab(vocab_path)
 
-    train_data = zip(*load_data(FLAGS.data_dir, "val"))
+    train_data = zip(*load_data(FLAGS.data_dir, "train"))
     dev_data = zip(*load_data(FLAGS.data_dir, "val"))
 
     global_train_dir = '/tmp/cs224n-squad-train'
