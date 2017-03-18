@@ -11,6 +11,9 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from tensorflow.python.ops import variable_scope as vs
 
+import os
+from os.path import join as pjoin
+
 from evaluate import exact_match_score, f1_score
 from evaluate import evaluate
 
@@ -438,12 +441,12 @@ class QASystem(object):
         _, loss, norm = sess.run([self.train_op, self.loss, self.norm], feed_dict=feed)
         return loss, norm
 
-    def get_eval(dataset, batch_size, sample=True):
+    def get_eval(self,sess, dataset, batch_size, sample=True):
         ''' if sample, take first batch only '''
         f1 = em = total = 0
         for i, batch in enumerate(get_minibatches(dataset, batch_size, shuffle=True)):
             p, q, p_len, q_len, a_s, a_e, p_raw = zip(*batch)
-            loss, norm, ys, ye = self.eval_batch(sess, p, q, p_len, q_len)
+            loss, norm, ys, ye = self.eval_batch(sess, p, q, p_len, q_len, a_s, a_e)
             a_s_pred = np.argmax(ys, axis=1)
             a_e_pred = np.argmax(ye, axis=1)
             for i in range(len(batch)):
@@ -454,7 +457,7 @@ class QASystem(object):
                 #ground truth lables
                 a_raw = ' '.join(p_raw[i][a_s[i]:a_e[i]+1])
                 pred_raw = ' '.join(p_raw[i][s_pred:e_pred+1])
-`
+
                 f1 += f1_score(pred_raw, a_raw)
                 em += exact_match_score(pred_raw, a_raw)
                 total += 1
@@ -468,31 +471,31 @@ class QASystem(object):
     def run_epoch(self, sess, train_data, dev_data):
         for i, batch in enumerate(get_minibatches(train_data, FLAGS.batch_size)):
             p, q, p_len, q_len, a_s, a_e, _ = zip(*batch)
-            if i%FLAGS.sample_every == 0:
-                f1, exact_match, loss, norm = get_eval(train_data, FLAGS.sample_size, True)
-                logging.info("Batch {} Train set sample_loss, F1, EM, norm: {}".format(i, (loss, f1, exact_match, norm)))
-
-                f1, exact_match, loss, norm = get_eval(dev_data, FLAGS.sample_size, False)
-                logging.info("Batch {} Val set loss, F1, EM, norm: {}".format(i, (loss, f1, exact_match, norm)))
-            #if len(batch) != FLAGS.batch_size:
-            #    continue
-            with Timer("Train batch {}".format(i)):
+            with Timer("Train batch {}".format(i+1)):
                 loss, norm = self.train_batch(sess, p, q, p_len, q_len, a_s, a_e)
-                logging.info("Train loss: {}, norm: {}".format(loss, norm))
+                #logging.info("Train loss: {}, norm: {}".format(loss, norm))
+
+            if i % FLAGS.sample_every == 0:
+                f1, exact_match, loss, norm = self.get_eval(sess, train_data, FLAGS.sample_size, True)
+                logging.info("[Batch {}] Train set sample_loss: {}, F1: {}, EM: {}, norm: {}".format(i+1, loss, f1, exact_match, norm))
+
+                f1, exact_match, loss, norm = self.get_eval(sess, dev_data, FLAGS.sample_size, False)
+                logging.info("[Batch {}] Val set loss: {}, F1: {}, EM: {}, norm: {}".format(i+1, (loss, f1, exact_match, norm)))
         print()
 
     def train(self, session, train_data, dev_data):
-        saver = tf.train.Saver()
+        self.saver = tf.train.Saver()
         best_score = 0.0
         for epoch in range(FLAGS.epochs):
             with Timer("training epoch {}/{}".format(epoch + 1, FLAGS.epochs)):
                 logging.info("Epoch %d out of %d", epoch + 1, FLAGS.epochs)
                 self.run_epoch(session, train_data, dev_data)
-                f1, exact_match, loss, _ = get_eval(dev_data, FLAGS.batch_size, False)
-                logging.info("Epoch {} Val loss, F1, EM: {}".format(epoch, (loss, f1, exact_match)))
+
+                f1, exact_match, loss, _ = self.get_eval( session, dev_data, FLAGS.batch_size, False)
+                logging.info("[Epoch {}] Val set loss: {}, F1: {}, EM: {}".format(epoch + 1, loss, f1, exact_match))
 
             if self.saver:
-                epoch_output = pjoin(train_dir, 'epoch{}'.format(epoch+self.config.start_epoch), "model.weights")
+                epoch_output = pjoin(FLAGS.train_dir, 'epoch{}'.format(epoch+1), "model.weights")
                 if not os.path.exists(epoch_output):
                     os.makedirs(epoch_output)
                 logging.info("Saving model epoch %d in %s", epoch+1, epoch_output)
