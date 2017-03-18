@@ -33,11 +33,11 @@ class Timer(object):
         self.name = name
 
     def __enter__(self):
-        self.start = time.clock()
+        self.start = time.time()
         return self
 
     def __exit__(self, *args):
-        self.end = time.clock()
+        self.end = time.time()
         self.interval = self.end - self.start
         logging.info("Timer: [{}] took {}s to run".format(self.name, self.interval))
 
@@ -130,6 +130,7 @@ class QASystem(object):
         self.q_len = tf.placeholder(tf.int32, [None], name = "question_len")
         #self.add_column_question = tf.placeholder(tf.int32, [None, FLAGS.question_size], name="add_column_question")
         #self.add_column_paragraph = tf.placeholder(tf.int32, [None, FLAGS.paragraph_size], name="add_column_paragraph")
+
     def setup_optimizer(self):
         optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate) #.minimize(self.loss)
         variables = tf.trainable_variables()
@@ -276,134 +277,22 @@ class QASystem(object):
         self.logits_end_1 = (tf.reshape(tf.matmul(final_layer_, W_end), shape=[cur_batch_size, FLAGS.paragraph_size]) + b_end)
         self.yp_end_1 = tf.nn.softmax(self.logits_end_1)
         '''
-        # MPCM
 
-        '''
-        # Add filter layer
-        with tf.variable_scope("encode_filter"):
-            filterLayer = True
-            if filterLayer:
-                normed_p = tf.nn.l2_normalize(self.p_emb, dim=2) # normalize the 400 paragraph vectors
-                normed_q = tf.nn.l2_normalize(self.q_emb, dim=2)
-                cossim = tf.matmul(normed_p, tf.transpose(normed_q, [0, 2, 1]))
-                rel = tf.reduce_max(cossim, axis = 2, keep_dims = True)
-                self.p_emb_p = tf.multiply(rel, self.p_emb)
-            else:
-                self.p_emb_p = self.p_emb
-
-        # add dropout after filter layer
-        self.q_emb = tf.nn.dropout(self.q_emb, self.dropout)
-        self.p_emb_p = tf.nn.dropout(self.p_emb_p, self.dropout)
-
-        cell = self.cell(FLAGS.hidden_size, state_is_tuple=True)
-        cell = tf.contrib.rnn.DropoutWrapper(cell=cell, output_keep_prob=self.dropout)
-
-        # Context Representation Layer
-        with tf.variable_scope("encode_p_mpcm"):
-            (output_p_fw, output_p_bw), _ = tf.nn.bidirectional_dynamic_rnn(
-                cell_fw=cell,
-                cell_bw=cell,
-                inputs=self.p_emb_p,
-                initial_state_fw=output_state_fw_q,
-                sequence_length=self.p_len,
-                dtype=tf.float32
-            )
-
-            # Multi-perspective context matching layer
-            W1 = tf.get_variable(
-                "W1",
-                shape=[1, 1, FLAGS.hidden_size, l_dim],
-                initializer=tf.contrib.layers.xavier_initializer()
-            )
-            W2 = tf.get_variable(
-                "W2",
-                shape=[1, 1, FLAGS.hidden_size, l_dim],
-                initializer=tf.contrib.layers.xavier_initializer()
-            )
-            output_p_fw = tf.expand_dims(output_p_fw, 3)
-            tp1 = tf.nn.l2_normalize(tf.multiply(output_p_fw, W1), dim=2)
-            qs1 = output_q_fw[:, FLAGS.question_size - 1, :]
-            qs1 = tf.expand_dims(qs1, 1)
-            qs1 = tf.expand_dims(qs1, 3)
-            tq1 = tf.nn.l2_normalize(tf.multiply(qs1, W1), dim=2)
-            m1 = tf.multiply(tp1, tq1)
-            m1_full = tf.reduce_sum(m1, axis=2)
-            m1_max = tf.reduce_max(m1, axis=2)
-            m1_mean = tf.reduce_mean(m1, axis=2)
-
-
-            output_p_bw = tf.expand_dims(output_p_bw, 3)
-            tp2 = tf.nn.l2_normalize(tf.multiply(output_p_bw, W2), dim=2)
-            qs2 = output_q_bw[:, 0, :]
-            qs2 = tf.expand_dims(qs2, 1)
-            qs2 = tf.expand_dims(qs2, 3)
-            tq2 = tf.nn.l2_normalize(tf.multiply(qs2, W2), dim=2)
-            m2 = tf.multiply(tp2, tq2)
-            m2_full = tf.reduce_sum(m2, axis=2)
-            m2_max = tf.reduce_max(m2, axis=2)
-            m2_mean = tf.reduce_mean(m2, axis=2)
-
-            m = tf.concat([m1_full, m1_max, m1_mean, m2_full, m2_max, m2_mean], axis=2)
-            m = tf.nn.dropout(m, self.dropout)
-
-            # Aggregation layer
-            cur_batch_size = tf.shape(self.p)[0];
-
-            with tf.variable_scope("mix"):
-                outputs_mix, _ = tf.nn.bidirectional_dynamic_rnn(
-                    cell_fw=cell,
-                    cell_bw=cell,
-                    inputs=m,
-                    sequence_length= self.p_len,
-                    dtype=tf.float32)
-                final_layer = tf.concat(outputs_mix, 2)
-
-            dim_final_layer = int(final_layer.get_shape()[2])
-            final_layer_ = tf.reshape(final_layer, shape=[-1, dim_final_layer])
-
-            # Prediction layer
-            # this should be replaced by a NN as in the paper later
-            W_start_ = tf.get_variable("W_start_", shape=[dim_final_layer, 1], initializer=tf.contrib.layers.xavier_initializer())
-            b_start_ = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
-            mixed_start = tf.matmul(final_layer_, W_start_)
-            mixed_start = tf.reshape(mixed_start, shape=[-1, FLAGS.paragraph_size])
-            self.logits_start_2 = mixed_start + b_start_
-            self.yp_start_2 = tf.nn.softmax(self.logits_start_2)
-
-            W_end_ = tf.get_variable("W_end_", shape=[dim_final_layer, 1], initializer=tf.contrib.layers.xavier_initializer())
-            b_end_ = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
-            mixed_end = tf.matmul(final_layer_, W_end_)
-            mixed_end = tf.reshape(mixed_end, shape=[-1, FLAGS.paragraph_size])
-
-        self.logits_end_2 = mixed_end + b_end_
-        self.yp_end_2 = tf.nn.softmax(self.logits_end_2)
-        # add logits (before softmaxO)
-        self.logits_end = self.logits_end_1 + self.logits_end_2
-        self.logits_start = self.logits_start_1 + self.logits_start_2
-        # multiply probabilities
-        self.yp_start = tf.multiply(self.yp_start_1, self.yp_start_2)
-        self.yp_end = tf.multiply(self.yp_end_1, self.yp_end_2)
-        '''
     def setup_loss(self):
         #may need to do some reshaping here
         # Someone replaced yp_start with logits_start in loss. Don't really follow the change. Setting it back to original.
         with vs.variable_scope("loss"):
             self.loss_start_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_1, labels=self.a_s))
             self.loss_end_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_1, labels=self.a_e))
-            #self.loss_start_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_2, labels=self.a_s))
-            #self.loss_end_2 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_2, labels=self.a_e))
-            # compute span l2 loss
             a_s_pred = tf.argmax(self.yp_start, axis=1)
             a_e_pred = tf.argmax(self.yp_end, axis=1)
             self.loss_span = tf.reduce_mean(tf.nn.l2_loss(tf.cast(self.a_e - self.a_s + 1, tf.float32) - tf.cast(a_e_pred - a_s_pred + 1, tf.float32)))
-            #self.loss = tf.add(self.loss_start_1, self.loss_end_1) + tf.add(self.loss_start_2, self.loss_end_2) + FLAGS.l2_lambda * self.loss_span
             self.loss = tf.add(self.loss_start_1, self.loss_end_1) + FLAGS.l2_lambda * self.loss_span
 
     def evaluate_answer(self, session, p, q, p_len, q_len, a_s, a_e, sample=100):
+        #unused for now
         f1 = 0.0
         em = 0.0
-
-        #unused for now
         for sample in samples: # sample of size 100
             answers_dic = generate_answers(sess, model, sample_dataset, rev_vocab) # returns dictionary to be fed in evaluate
             result = evaluate(sample_dataset_dic, answers_dic) # takes dictionaries of form nswers[uuid] = "real answer"
