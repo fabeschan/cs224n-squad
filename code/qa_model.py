@@ -10,7 +10,6 @@ import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from tensorflow.python.ops import variable_scope as vs
-from util import ConfusionMatrix, Progbar, minibatches, get_minibatches
 
 from evaluate import exact_match_score, f1_score
 from evaluate import evaluate
@@ -47,6 +46,19 @@ def get_optimizer(opt):
     else:
         assert (False)
     return optfn
+
+def get_minibatches(data, batch_size=-1, shuffle=True):
+    batch = []
+    indices = range(len(data))
+    if shuffle:
+        random.shuffle(indices)
+    for i in indices:
+        batch.append(data[i])
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if len(batch):
+        yield batch
 
 class QASystem(object):
     def __init__(self, FLAGS, pretrained_embeddings, vocab_dim, *args):
