@@ -5,4 +5,4 @@ nvidia-docker run \
     --workdir=/opt \
     -v `pwd`:/opt \
     -v /tmp:/tmp \
-    tfimg $@
+    fabeschan/tfimg $@
