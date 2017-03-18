@@ -24,7 +24,7 @@ tf.app.flags.DEFINE_float("dropout", 0.10, "Fraction of units randomly dropped o
 tf.app.flags.DEFINE_integer("batch_size", 90, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 30, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
-tf.app.flags.DEFINE_string("data_dir", "data/squad", "SQuAD directory (default ./data/squad)")
+tf.app.flags.DEFINE_string("data_dir", "data0/squad", "SQuAD directory (default ./data/squad)")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory to save the model parameters (default: ./train).")
 tf.app.flags.DEFINE_string("log_dir", "log", "Path to store log and flag files (default: ./log)")
 tf.app.flags.DEFINE_string("optimizer", "adam", "adam / sgd")
@@ -178,7 +178,7 @@ def main(_):
     vocab_path = FLAGS.vocab_path or pjoin(FLAGS.data_dir, "vocab.dat")
     vocab, rev_vocab = initialize_vocab(vocab_path)
 
-    train_data = zip(*load_data(FLAGS.data_dir, "train"))
+    train_data = zip(*load_data(FLAGS.data_dir, "val"))
     dev_data = zip(*load_data(FLAGS.data_dir, "val"))
 
     global_train_dir = '/tmp/cs224n-squad-train'

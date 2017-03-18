@@ -61,15 +61,19 @@ class QASystem(object):
                 self.setup_system()
                 self.setup_loss()
                 self.setup_optimizer()
-
-    # http://www.aclweb.org/anthology/D15-1166
+    ## attention layer from paper coattention
     def setup_attention_layer(self, D, Q):
+        #add_column_Q = tf.zeros([None, FLAGS.question_size, 1])
+        #print ("column_Q:", add_column_Q.get_shape())
+        #add_column_D = tf.zeros([FLAGS.paragraph_size, 1])
         Q = tf.transpose(Q, perm=[0, 2, 1])
+        # add tanh to Q
+        Q = tf.nn.tanh(Q)
         D = tf.transpose(D, perm=[0, 2, 1])
         # i.e. use dot-product scoring
         print("Q shape", Q.get_shape())
         L = tf.matmul(tf.transpose(D, perm=[0, 2, 1]), Q)  # much more complexity needed here (for example softmax scaling etc.)
-        #s_max = tf.reduce_max(s, axis = 1, keep_dims=True)
+        #s_max = tf.reduce_max(s, axis = 1, kddeep_dims=True)
         #s_min= tf.reduce_min(s, axis = 1, keep_dims=True)
         #s_mean = tf.reduce_mean(s, axis = 1, keep_dims=True)
         #s_enrich = tf.concat([s_max, s_min, s_mean], 1)
@@ -96,7 +100,7 @@ class QASystem(object):
         '''
         p_emb_p = D
 
-        C_D = tf.matmul(tf.concat([C_Q, Q], 1), A_D)
+        C_D = tf.matmul(tf.concat([Q, C_Q], 1), A_D)
         print("C_D shape:",C_D.get_shape())
         p_concat = tf.concat([p_emb_p, C_D], 1)
         return p_concat #tf.concat([s, s_enrich, tf.transpose(p_emb_p, perm = [0, 2, 1]) ], 1) #c, tf.transpose(pp, perm = [0, 2, 1]),
@@ -109,7 +113,8 @@ class QASystem(object):
         self.a_e = tf.placeholder(tf.int32, [None], name="answer_end")
         self.p_len = tf.placeholder(tf.int32, [None], name="paragraph_len")
         self.q_len = tf.placeholder(tf.int32, [None], name = "question_len")
-
+        #self.add_column_question = tf.placeholder(tf.int32, [None, FLAGS.question_size], name="add_column_question")
+        #self.add_column_paragraph = tf.placeholder(tf.int32, [None, FLAGS.paragraph_size], name="add_column_paragraph")
     def setup_optimizer(self):
         optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate) #.minimize(self.loss)
         variables = tf.trainable_variables()
@@ -158,10 +163,13 @@ class QASystem(object):
                 inputs=self.q_emb,
                 sequence_length=self.q_len,
                 dtype=tf.float32
+
             )
+            #print (output_q_fw.get_shape())
+            #33print ("eeeeeeeeeeeeeeeeee", self.q_emb.get_shape())
             self.qq = tf.concat([output_q_fw, output_q_bw], 2)  # 2h_dim dimensional representation over each word in question
             # self.qq = tf.reshape(output_state_fw_q, shape = [self.batch_size, 1, 2*h_dim]) + tf.reshape(output_state_bw_q, shape = [self.batch_size, 1, 2*h_dim])  # try only using "end representation"  as question summary vector
-            print(("type11", (self.qq).get_shape()))
+            #print(("type11", (self.qq).get_shape()))
         with tf.variable_scope("encode_p"):
             outputs_p, _ = tf.nn.bidirectional_dynamic_rnn(
                 cell_fw=cell_p_fwd,
@@ -176,30 +184,48 @@ class QASystem(object):
         # need to mix qq and pp to get an attention matrix (question-words)-by-(paragraph-words) dimensional heat-map like matrix for each example
         # this attention matrix will allow us to localize the interesting parts of the paragraph (they will peak) and help us identify the patch corresponding to answer
         # visually the patch will ideally start at start-index and decay near end-index
-        self.att = self.setup_attention_layer(self.pp, self.qq)
+        self.coatt_layer = self.setup_attention_layer(self.pp, self.qq)
 
         #  predictions obtain by applying softmax over something (attention vals - should be something like dim(question-words)-by-dim(paragraph)
         # currently a B-by-QMAXLEN-by-PMAXLEN tensor
-        dim_att = int(self.att.get_shape()[1])  # self.QMAXLEN # # first dim of something, second dim of soemthing should be self.AMAXLEN i.e. self.PMAXLEN i.e. attention computed for each word in paragraph
 
-        print(("type2", (self.att).get_shape()))
 
-        # apply another LSTM layer before softmax
-        cell_final = self.cell(dim_att, state_is_tuple=True)
-        out_lstm, _ = tf.nn.bidirectional_dynamic_rnn(
+        # apply another LSTM layer before softmx
+        cell_final = self.cell(FLAGS.hidden_size*4, state_is_tuple=True)
+        U, _ = tf.nn.bidirectional_dynamic_rnn(
             cell_fw=cell_final,
             cell_bw=cell_final,
-            inputs=tf.transpose(self.att, perm = [0, 2, 1]),
+            inputs=tf.transpose(self.coatt_layer, perm = [0, 2, 1]),
             sequence_length=self.p_len ,
             dtype=tf.float32
         )
-        lstm_final = tf.concat(out_lstm, 2)
+        #print ("ddddddddddddddddddddd", out_lstm.get_shape())
+        #print(("dim_att", (self.coatt_layer).get_shape()))
+        U = tf.concat(U, 2)
         #lstm_final = tf.transpose(, perm = [0, 2, 1])  # 2*2h_dim dimensional representation over each word in context-paragraph
-        print(lstm_final.get_shape())
+        print("U", U.get_shape())
         #lstm_final = tf.transpose(self.att, perm=[0, 2, 1])
-        lstm_final = tf.nn.dropout(lstm_final, self.dropout)
+        U = tf.nn.dropout(U, self.dropout)
 
+        cell_decode = tf.contrib.rnn.BasicLSTMCell(FLAGS.hidden_size*2)
 
+        with tf.variable_scope("decode"):
+            h, _ = tf.nn.dynamic_rnn(
+                cell=cell_decode,
+                inputs=U,
+                sequence_length=self.p_len ,
+                dtype=tf.float32
+            )
+
+        print ("U", U.get_shape())
+        print ("h",h.get_shape())
+        W_D = tf.get_variable("W_D", shape=[FLAGS.hidden_size*10, FLAGS.hidden_size*2], initializer=self.initializer)
+        r_input = tf.concat([h, U], 2)
+        r_input = tf.reshape(r_input, shape=[-1, FLAGS.paragraph_size, FLAGS.hidden_size*10])
+        print("r_input", r_input.get_shape())
+        r = tf.nn.tanh(tf.matmul(r_input, W_D))
+
+        print("r ", r.get_shape())
         dim_final_layer = int(lstm_final.get_shape()[2])
         final_layer_ = tf.reshape(lstm_final, shape=[-1, dim_final_layer])
 
