@@ -22,7 +22,7 @@ tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this nor
 tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
 tf.app.flags.DEFINE_float("dropout", 0.10, "Fraction of units randomly dropped on non-recurrent connections.")
 tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("epochs", 30, "Number of epochs to train.")
+tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
 tf.app.flags.DEFINE_integer("iteration_size", 4, "Size of the pretrained vocabulary.")
 tf.app.flags.DEFINE_integer("p", 16, "Size of the pretrained vocabulary.")
@@ -173,7 +173,7 @@ def main(_):
     vocab_path = FLAGS.vocab_path or pjoin(FLAGS.data_dir, "vocab.dat")
     vocab, rev_vocab = initialize_vocab(vocab_path)
 
-    train_data = zip(*load_data(FLAGS.data_dir, "val"))
+    train_data = zip(*load_data(FLAGS.data_dir, "train"))
     dev_data = zip(*load_data(FLAGS.data_dir, "val"))
 
     global_train_dir = '/tmp/cs224n-squad-train'
