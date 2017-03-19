@@ -88,6 +88,7 @@ def read_dataset(dataset, tier, vocab):
     question_uuid_data = []
     context_token_data = []
     span_data = []
+    question_token_data = []
 
     for articles_id in tqdm(range(len(dataset['data'])), desc="Preprocessing {}".format(tier)):
         article_paragraphs = dataset['data'][articles_id]['paragraphs']
@@ -120,9 +121,10 @@ def read_dataset(dataset, tier, vocab):
                     context_data.append(' '.join(context_ids))
                     query_data.append(' '.join(qustion_ids))
                     context_token_data.append(' '.join(context_tokens))
+                    question_token_data.append(' '.join(question_tokens))
 
 
-    return context_data, query_data, span_data, context_token_data
+    return context_data, query_data, span_data, context_token_data, question_token_data
 
 
 def prepare_dev(prefix, dev_filename, vocab):
@@ -130,9 +132,9 @@ def prepare_dev(prefix, dev_filename, vocab):
     dev_dataset = maybe_download(squad_base_url, dev_filename, prefix)
 
     dev_data = data_from_json(os.path.join(prefix, dev_filename))
-    context_data, question_data, question_uuid_data, context_tokens = read_dataset(dev_data, 'dev', vocab)
+    context_data, question_data, question_uuid_data, context_tokens, question_tokens = read_dataset(dev_data, 'dev', vocab)
 
-    return context_data, question_data, question_uuid_data, context_tokens
+    return context_data, question_data, question_uuid_data, context_tokens, question_tokens
 
 def get_minibatches(data, batch_size=-1):
     batch = []
@@ -256,7 +258,7 @@ def main(_):
      #       f.write(unicode(json.dumps(answers, ensure_ascii=False)))
 '''
 
-def write_dev(context, question, span, context_text):
+def write_dev(context, question, span, context_text, question_text):
     f1 = open("data/squad/dev.ids.context", "w")
     for line in context:
         f1.write(line + '\n')
@@ -273,6 +275,11 @@ def write_dev(context, question, span, context_text):
     for line in context_text:
         f4.write(line + '\n')
     f4.close()
+    f5 = open("data/squad/dev.question", "w")
+    for line in question_text:
+        f5.write(line + '\n')
+    f5.close()
+
 
 
 
@@ -284,9 +291,9 @@ if __name__ == "__main__":
     vocab, rev_vocab = initialize_vocab(FLAGS.vocab_path)
     dev_dirname = os.path.dirname(os.path.abspath(FLAGS.dev_path))
     dev_filename = os.path.basename(FLAGS.dev_path)
-    context_data, question_data, span_data, context_tokens = prepare_dev(dev_dirname, dev_filename, vocab)
-    dataset = (context_data, question_data, span_data, context_tokens)
-    write_dev(context_data, question_data, span_data, context_tokens)
+    context_data, question_data, span_data, context_tokens, question_tokens = prepare_dev(dev_dirname, dev_filename, vocab)
+    #dataset = (context_data, question_data, span_data, context_tokens)
+    write_dev(context_data, question_data, span_data, context_tokens, question_tokens)
     #print(len(context_data))
     #print(len(question_data))
     #print(len(span_data))
