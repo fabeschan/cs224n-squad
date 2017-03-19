@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
 tf.app.flags.DEFINE_float("dropout", 0.0, "Fraction of units randomly dropped on non-recurrent connections.")
-tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during training.")
+tf.app.flags.DEFINE_integer("batch_size", 10, "Batch size to use during eval.")
 tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
 tf.app.flags.DEFINE_integer("iteration_size", 4, "Size of the pretrained vocabulary.")
@@ -125,6 +125,17 @@ def prepare_dev(prefix, dev_filename, vocab):
 
     return context_data, question_data, question_uuid_data, context_tokens
 
+def get_minibatches(data, batch_size=-1):
+    batch = []
+    indices = range(len(data))
+    for i in indices:
+        batch.append(data[i])
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if len(batch):
+        yield batch
+
 
 def generate_answers(sess, model, dataset, rev_vocab):
     """
@@ -146,34 +157,35 @@ def generate_answers(sess, model, dataset, rev_vocab):
     :return:
     """
     answers = {}
+    zipped = zip(*dataset)
+    num_batches = (len(zipped) + FLAGS.batch_size - 1) / FLAGS.batch_size
+    for i, batch in enumerate(get_minibatches(zipped, FLAGS.batch_size)):
+        context_data, question_data, question_uuid_data, context_tokens = zip(*batch)
+        p, q = [], []
+        p_len, q_len = [], []
+        for i in range(len(context_data)):
+            q.append(question_data[i].split())
+            q_len.append(min(FLAGS.question_size, len(question_data[i].split())))
 
-    context_data, question_data, question_uuid_data, context_tokens = dataset
-    p, q = [], []
-    p_len, q_len = [], []
-    for i in range(len(context_data)):
-	q.append(question_data[i].split())
-	q_len.append(min(FLAGS.question_size, len(question_data[i].split())))
+            p.append(context_data[i].split())
+            p_len.append(min(FLAGS.paragraph_size, len(context_data[i].split())))
 
-	p.append(context_data[i].split())
-	p_len.append(min(FLAGS.paragraph_size, len(context_data[i].split())))
+        q = pad_sequences(q, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
+        p = pad_sequences(p, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
 
-    q = pad_sequences(q, maxlen=FLAGS.question_size, value=PAD_ID, padding="post")
-    p = pad_sequences(p, maxlen=FLAGS.paragraph_size, value=PAD_ID, padding="post")
+        ys, ye = model.predict_batch(sess, p, q, p_len, q_len)
 
-    ys, ye = model.predict_batch(sess, p, q, p_len, q_len)
+        a_s_pred = np.argmax(ys, axis=1)
+        a_e_pred = np.argmax(ye, axis=1)
+        for i in range(len(context_data)):
+            #predicted a_s and a_e
+            s_pred = a_s_pred[i]
+            e_pred = a_e_pred[i]
 
-    a_s_pred = np.argmax(ys, axis=1)
-    a_e_pred = np.argmax(ye, axis=1)
-    #print(a_s_pred)
-    #print(context_tokens)
-    for i in range(len(context_data)):
-        #predicted a_s and a_e
-        s_pred = a_s_pred[i]
-        e_pred = a_e_pred[i]
-
-        uuid = question_uuid_data[i]
-        pred_raw = ' '.join(context_tokens[i][s_pred:e_pred+1])
-        answers[uuid] = pred_raw
+            uuid = question_uuid_data[i]
+            pred_raw = ' '.join(context_tokens[i][s_pred:e_pred+1])
+            answers[uuid] = pred_raw
+        print("Finished answering batch {} of {}".format(i+1, num_batches))
     return answers
 
 
