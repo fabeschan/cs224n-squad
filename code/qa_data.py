@@ -28,12 +28,12 @@ def setup_args():
     parser = argparse.ArgumentParser()
     code_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)))
     vocab_dir = os.path.join("data", "squad")
-    glove_dir = os.path.join("data", "dwr")
+    glove_dir = os.path.join("download", "dwr")
     source_dir = os.path.join("data", "squad")
     parser.add_argument("--source_dir", default=source_dir)
     parser.add_argument("--glove_dir", default=glove_dir)
     parser.add_argument("--vocab_dir", default=vocab_dir)
-    parser.add_argument("--glove_dim", default=50, type=int)
+    parser.add_argument("--glove_dim", default=100, type=int)
     return parser.parse_args()
 
 
@@ -151,7 +151,9 @@ if __name__ == '__main__':
                       [pjoin(args.source_dir, "train.context"),
                        pjoin(args.source_dir, "train.question"),
                        pjoin(args.source_dir, "val.context"),
-                       pjoin(args.source_dir, "val.question")])
+                       pjoin(args.source_dir, "val.question"),
+                       pjoin(args.source_dir, "dev.context"),
+                       pjoin(args.source_dir, "dev.question")])
     vocab, rev_vocab = initialize_vocabulary(pjoin(args.vocab_dir, "vocab.dat"))
 
     # ======== Trim Distributed Word Representation =======
@@ -173,3 +175,8 @@ if __name__ == '__main__':
     y_ids_path = valid_path + ".ids.question"
     data_to_token_ids(valid_path + ".context", x_dis_path, vocab_path)
     data_to_token_ids(valid_path + ".question", y_ids_path, vocab_path)
+
+    x_dev_dis_path = valid_path + ".ids.context"
+    y_dev_ids_path = valid_path + ".ids.question"
+    data_to_token_ids(valid_path + ".context", x_dev_dis_path, vocab_path)
+    data_to_token_ids(valid_path + ".question", y_dev_ids_path, vocab_path)

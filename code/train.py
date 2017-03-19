@@ -20,7 +20,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
+tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
 tf.app.flags.DEFINE_float("dropout", 0.10, "Fraction of units randomly dropped on non-recurrent connections.")
 tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
@@ -35,7 +35,7 @@ tf.app.flags.DEFINE_string("vocab_path", "data/squad/vocab.dat", "Path to vocab 
 tf.app.flags.DEFINE_string("embed_path", "", "Path to the trimmed GLoVe embedding (default: ./data/squad/glove.trimmed.{vocab_dim}.npz)")
 
 tf.app.flags.DEFINE_integer("question_size", 60, "Max Question Length")
-tf.app.flags.DEFINE_integer("paragraph_size", 350, "Max Context Paragraph Length")
+tf.app.flags.DEFINE_integer("paragraph_size", 400, "Max Context Paragraph Length")
 tf.app.flags.DEFINE_integer("hidden_size", 200, "size of hidden layer h_i")
 tf.app.flags.DEFINE_integer("sample_every", 100, "every 100 batch to plot one result")
 tf.app.flags.DEFINE_integer("sample_size", 100, "size of sample")
@@ -123,7 +123,12 @@ def main(_):
     vocab, rev_vocab = initialize_vocab(vocab_path)
 
     train_data = zip(*load_data(FLAGS.data_dir, "train"))
-    dev_data = zip(*load_data(FLAGS.data_dir, "val"))
+    val_data = zip(*load_data(FLAGS.data_dir, "val"))
+    dev_data = zip(*load_data(FLAGS.data_dir, "dev"))
+
+    #model_train_data = train_data + val_data + dev_data
+    model_train_data = dev_data
+    model_eval_data = dev_data
 
     global_train_dir = '/tmp/cs224n-squad-train'
     # Adds symlink to {train_dir} from /tmp/cs224n-squad-train to canonicalize the
@@ -150,12 +155,8 @@ def main(_):
             logger.info("Embeddings loaded with shape: %s %s" % (pretrained_embeddings.shape))
 
             qa = QASystem(FLAGS, pretrained_embeddings, vocab_dim=len(vocab.keys()))
-
             initialize_model(sess, qa, train_dir)
-
-            qa.train(sess, train_data, dev_data)
-
-            #qa.evaluate_answer(sess, q_dev, p_dev, a_s_dev, vocab)
+            qa.train(sess, model_train_data, model_eval_data)
 
 if __name__ == "__main__":
     tf.app.run()
