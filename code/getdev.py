@@ -13,16 +13,16 @@ import numpy as np
 from six.moves import xrange
 import tensorflow as tf
 
-from qa_model import QASystem
+#from qa_model import QASystem
 from preprocessing.squad_preprocess import data_from_json, maybe_download, squad_base_url, \
     invert_map, tokenize, token_idx_map
 import qa_data
 from qa_data import PAD_ID
 
-import logging
+#import logging
 from utils import pad_sequences
 
-logging.basicConfig(level=logging.INFO)
+#logging.basicConfig(level=logging.INFO)
 
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
@@ -61,9 +61,9 @@ def initialize_model(session, model, train_dir):
         logging.info("Reading model parameters from %s" % ckpt.model_checkpoint_path)
         model.saver.restore(session, ckpt.model_checkpoint_path)
     else:
-        logging.info("Created model with fresh parameters.")
+        #logging.info("Created model with fresh parameters.")
         session.run(tf.global_variables_initializer())
-        logging.info('Num params: %d' % sum(v.get_shape().num_elements() for v in tf.trainable_variables()))
+        #logging.info('Num params: %d' % sum(v.get_shape().num_elements() for v in tf.trainable_variables()))
     return model
 
 
@@ -105,14 +105,14 @@ def read_dataset(dataset, tier, vocab):
                 question = qas[qid]['question']
                 question_tokens = tokenize(question)
                 question_uuid = qas[qid]['id']
-                
+
                 answers = qas[qid]['answers']
                 for answer in answers:
                     text = answer['text']
                     a_len = len(text.split())
                     a_start = int(answer['answer_start'])
                     a_end = a_start + a_len -1
-                    span_data.append(str(a_start)+' '+str(a_end))            
+                    span_data.append(str(a_start)+' '+str(a_end))
 
                     context_ids = [str(vocab.get(w, qa_data.UNK_ID)) for w in context_tokens]
                     qustion_ids = [str(vocab.get(w, qa_data.UNK_ID)) for w in question_tokens]
@@ -280,7 +280,7 @@ def write_dev(context, question, span, context_text):
 
 
 if __name__ == "__main__":
-     
+
     vocab, rev_vocab = initialize_vocab(FLAGS.vocab_path)
     dev_dirname = os.path.dirname(os.path.abspath(FLAGS.dev_path))
     dev_filename = os.path.basename(FLAGS.dev_path)
