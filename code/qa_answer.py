@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
 tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
 tf.app.flags.DEFINE_float("dropout", 0.0, "Fraction of units randomly dropped on non-recurrent connections.")
-tf.app.flags.DEFINE_integer("batch_size", 10, "Batch size to use during eval.")
+tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during eval.")
 tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
 tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
 tf.app.flags.DEFINE_integer("iteration_size", 4, "Size of the pretrained vocabulary.")
@@ -156,14 +156,15 @@ def generate_answers(sess, model, dataset, rev_vocab):
     :param rev_vocab: this is a list of vocabulary that maps index to actual words
     :return:
     """
+    logging.info("Starting answering")
     answers = {}
     zipped = zip(*dataset)
-    num_batches = (len(zipped) + FLAGS.batch_size - 1) / FLAGS.batch_size
-    for i, batch in enumerate(get_minibatches(zipped, FLAGS.batch_size)):
+    num_batches = (len(zipped) + FLAGS.batch_size - 1) // FLAGS.batch_size
+    for k, batch in enumerate(get_minibatches(zipped, FLAGS.batch_size)):
         context_data, question_data, question_uuid_data, context_tokens = zip(*batch)
         p, q = [], []
         p_len, q_len = [], []
-        for i in range(len(context_data)):
+        for i in range(len(batch)):
             q.append(question_data[i].split())
             q_len.append(min(FLAGS.question_size, len(question_data[i].split())))
 
@@ -177,7 +178,7 @@ def generate_answers(sess, model, dataset, rev_vocab):
 
         a_s_pred = np.argmax(ys, axis=1)
         a_e_pred = np.argmax(ye, axis=1)
-        for i in range(len(context_data)):
+        for i in range(len(batch)):
             #predicted a_s and a_e
             s_pred = a_s_pred[i]
             e_pred = a_e_pred[i]
@@ -185,7 +186,7 @@ def generate_answers(sess, model, dataset, rev_vocab):
             uuid = question_uuid_data[i]
             pred_raw = ' '.join(context_tokens[i][s_pred:e_pred+1])
             answers[uuid] = pred_raw
-        print("Finished answering batch {} of {}".format(i+1, num_batches))
+        logging.info("Finished answering batch {} of {}".format(k+1, num_batches))
     return answers
 
 
