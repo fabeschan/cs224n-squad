@@ -77,7 +77,6 @@ class QASystem(object):
                 self.setup_optimizer()
         self.saver = tf.train.Saver()
 
-    ## attention layer from paper coattention
     def setup_attention_layer(self, D, Q):
         Q = tf.transpose(Q, perm=[0, 2, 1])
         # add tanh to Q
@@ -94,6 +93,7 @@ class QASystem(object):
         p_emb_p = D
         C_D = tf.matmul(tf.concat([Q, C_Q], 1), A_D)
         p_concat = tf.concat([p_emb_p, C_D], 1)
+        logging.info('p_concat shape: {}'.format(p_concat.get_shape()))
         return p_concat
 
     def setup_placeholder(self):
@@ -119,13 +119,13 @@ class QASystem(object):
     def setup_system(self):
         self.cell = tf.contrib.rnn.BasicLSTMCell
 
-        self.embedding_mat = tf.Variable(self.pretrained_embeddings, name="embed", dtype=tf.float32)
+        self.embedding_mat = tf.Variable(self.pretrained_embeddings, name="embed", dtype=tf.float32, trainable=False)
         self.q_emb = tf.nn.embedding_lookup(self.embedding_mat, self.q)
         self.p_emb = tf.nn.embedding_lookup(self.embedding_mat, self.p)
 
         with tf.variable_scope("encode_qp"):
-            cell_fwd = self.cell(FLAGS.hidden_size, state_is_tuple=True)
-            cell_bwd = self.cell(FLAGS.hidden_size, state_is_tuple=True)
+            cell_fwd = self.cell(FLAGS.hidden_size)
+            cell_bwd = self.cell(FLAGS.hidden_size)
 
             (output_q_fw, output_q_bw), (output_state_fw_q, output_state_bw_q) = tf.nn.bidirectional_dynamic_rnn(
                 cell_fw=cell_fwd,
@@ -153,7 +153,52 @@ class QASystem(object):
             self.pp = tf.nn.dropout(self.pp, self.dropout)
 
         self.coatt_layer = self.setup_attention_layer(self.pp, self.qq)
+        G = tf.transpose(self.coatt_layer, perm = [0, 2, 1])
+        logging.info('G shape: {}'.format(G.get_shape()))
 
+        with tf.variable_scope("mod", initializer=self.initializer):
+            cell_fw = self.cell(FLAGS.hidden_size)
+            cell_bw = self.cell(FLAGS.hidden_size)
+
+            output_m, _ = tf.nn.bidirectional_dynamic_rnn(
+                cell_fw,
+                cell_bw,
+                G,
+                sequence_length=self.p_len,
+                dtype=tf.float32
+            )
+            M = tf.concat(output_m, 2)
+            M = tf.nn.dropout(M, self.dropout)
+
+        with tf.variable_scope("mod2", initializer=self.initializer):
+            cell_fw = self.cell(FLAGS.hidden_size)
+            cell_bw = self.cell(FLAGS.hidden_size)
+
+            output_m2, _ = tf.nn.bidirectional_dynamic_rnn(
+                cell_fw,
+                cell_bw,
+                M,
+                sequence_length=self.p_len,
+                dtype=tf.float32
+            )
+            M2 = tf.concat(output_m2, 2)
+            M2 = tf.nn.dropout(M2, self.dropout)
+
+        M = tf.concat([G, M], 2)
+        M2 = tf.concat([G, M2], 2)
+        with tf.variable_scope("yp_start", initializer=self.initializer):
+            self.logits_start_1 = tf.squeeze(tf.contrib.layers.fully_connected(M, 1, weights_initializer=self.initializer))
+            logging.info('logits_start_1 shape: {}'.format(self.logits_start_1.get_shape()))
+            self.logits_start = tf.nn.softmax(self.logits_start_1, -1)
+            self.yp_start = self.logits_start
+
+        with tf.variable_scope("yp_end", initializer=self.initializer):
+            self.logits_end_1 = tf.squeeze(tf.contrib.layers.fully_connected(M2, 1, weights_initializer=self.initializer))
+            logging.info('logits_end_1 shape: {}'.format(self.logits_end_1.get_shape()))
+            self.logits_end = tf.nn.softmax(self.logits_end_1, -1)
+            self.yp_end = self.logits_end
+
+        '''
         cell_final_fw = self.cell(FLAGS.hidden_size*2, state_is_tuple=True)
         cell_final_bw = self.cell(FLAGS.hidden_size*2, state_is_tuple=True)
         U, _ = tf.nn.bidirectional_dynamic_rnn(
@@ -181,6 +226,7 @@ class QASystem(object):
         self.logits_end = tf.nn.softmax(self.logits_end_1, -1)
         #self.U_e_index = tf.argmax(self.logits_end,1)
         self.yp_end = self.logits_end
+        '''
 
     def setup_loss(self):
         with vs.variable_scope("loss"):
