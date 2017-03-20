@@ -20,11 +20,11 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 tf.app.flags.DEFINE_float("max_gradient_norm", 10.0, "Clip gradients to this norm.")
-tf.app.flags.DEFINE_float("learning_rate", 0.01, "Learning rate.")
-tf.app.flags.DEFINE_float("dropout", 0.10, "Fraction of units randomly dropped on non-recurrent connections.")
+tf.app.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
+tf.app.flags.DEFINE_float("dropout", 0.15, "Fraction of units randomly dropped on non-recurrent connections.")
 tf.app.flags.DEFINE_integer("batch_size", 100, "Batch size to use during training.")
 tf.app.flags.DEFINE_integer("epochs", 20, "Number of epochs to train.")
-tf.app.flags.DEFINE_integer("embedding_size", 100, "Size of the pretrained vocabulary.")
+tf.app.flags.DEFINE_integer("embedding_size", 300, "Size of the pretrained vocabulary.")
 tf.app.flags.DEFINE_integer("iteration_size", 4, "Size of the pretrained vocabulary.")
 tf.app.flags.DEFINE_integer("p", 16, "Size of the pretrained vocabulary.")
 tf.app.flags.DEFINE_string("data_dir", "data/squad", "SQuAD directory (default ./data/squad)")
@@ -127,8 +127,8 @@ def main(_):
     dev_data = zip(*load_data(FLAGS.data_dir, "dev"))
 
     #model_train_data = train_data + val_data + dev_data
-    model_train_data = dev_data
-    model_eval_data = dev_data
+    model_train_data = val_data
+    model_eval_data = val_data
 
     global_train_dir = '/tmp/cs224n-squad-train'
     # Adds symlink to {train_dir} from /tmp/cs224n-squad-train to canonicalize the

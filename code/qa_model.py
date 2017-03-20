@@ -10,7 +10,6 @@ import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from tensorflow.python.ops import variable_scope as vs
-from ops import highway_maxout, batch_linear
 
 import os
 from os.path import join as pjoin
@@ -68,134 +67,35 @@ class QASystem(object):
     def __init__(self, FLAGS, pretrained_embeddings, vocab_dim, *args):
         self.vocab_dim = vocab_dim
         self.pretrained_embeddings = pretrained_embeddings
-        self.cell = tf.contrib.rnn.BasicLSTMCell
         self.initializer = tf.contrib.layers.xavier_initializer()
 
         with Timer("setup graph"):
             with tf.variable_scope("qa", initializer=tf.uniform_unit_scaling_initializer(1.0)):
                 self.setup_placeholder()
-                self.encoder()
-                self.decoder()
+                self.setup_system()
                 self.setup_loss()
                 self.setup_optimizer()
         self.saver = tf.train.Saver()
 
-    def encoder(self):
-
-        # add embeddings for question and paragraph
-        # could tune this to be not trainable to boost speed
-        self.embedding_mat = tf.Variable(self.pretrained_embeddings, name="embed", dtype=tf.float32)
-        fn_embedding = lambda x: tf.nn.embedding_lookup(self.embedding_mat, x)
-        self.p_emb = tf.map_fn(lambda x: fn_embedding(x), self.p, dtype=tf.float32) # (None, paragraph_size, emb_size)    
-        self.q_emb = tf.map_fn(lambda x: fn_embedding(x), self.q, dtype=tf.float32) # (None, question_size, emb_size)         
-
-
-
-        # LSTM for question, get self.Q
-        with tf.variable_scope("encode_q"):
-            cell_q = self.cell(FLAGS.hidden_size, state_is_tuple=True)
-            cell_q = tf.contrib.rnn.DropoutWrapper(cell=cell_q, output_keep_prob=self.dropout)
-            Q, output_state_q = tf.nn.dynamic_rnn(
-                cell=cell_q,
-                inputs=self.q_emb,
-                sequence_length=self.q_len,
-                dtype=tf.float32
-            )
-            # Q: (None, question_size, hidden_size)
-            # deal D: add sentinel and do tanh; D: (None, hidden_size, question_size+1)
-            fn_add_column = lambda x: tf.concat([x, tf.zeros([1, FLAGS.hidden_size], dtype=tf.float32)], 0)
-            #Q = tf.map_fn(lambda x: fn_add_column(x), Q, dtype=tf.float32)
-            #Q = tf.tanh(batch_linear(Q, FLAGS.question_size+1, True))
-            Q = tf.transpose(Q, perm=[0, 2, 1])
-
-
-        # LSTM for question, get self.D
-        with tf.variable_scope("encode_p"):
-            cell_p = self.cell(FLAGS.hidden_size, state_is_tuple=True)
-            cell_p = tf.contrib.rnn.DropoutWrapper(cell=cell_p, output_keep_prob=self.dropout)
-            D, output_state_p = tf.nn.dynamic_rnn(
-                cell=cell_p,
-                initial_state=output_state_q,
-                inputs=self.p_emb,
-                sequence_length=self.p_len,
-                dtype=tf.float32
-            )
-            # D: (None, paragraph_size, hidden_size)
-            # deal D: add sentinel; D: (None, hidden_size, paragraph_size+1)
-            #fn_add_column = lambda x: tf.concat([x, tf.zeros([1, FLAGS.hidden_size], dtype=tf.float32)], 0)
-            #D = tf.map_fn(lambda x: fn_add_column(x), D, dtype=tf.float32)
-            D = tf.transpose(D, perm=[0, 2, 1])
-
-        # Set up Coatt_layer 
-        with tf.variable_scope('coattention'):
-            L = tf.matmul(tf.transpose(D, perm=[0, 2, 1]), Q) # L shape: (?, paragraph_size+1, question_size+1)
-            A_Q = tf.nn.softmax(L, dim=1) # L shape: (?, paragraph_size+1, question_size+1)
-            A_D = tf.nn.softmax(tf.transpose(L, perm=[0,2,1]), dim=1)
-            C_Q = tf.matmul(D, A_Q) # C_Q shape (?, hidden_size, question_size+1)
-            C_D = tf.matmul(tf.concat([Q, C_Q], 1), A_D) # C_D shape: (?, hidden_size*2, paragraph_size+1)s
-            coatt_layer = tf.concat([D, C_D], 1)
-        print ("done the coatt_layer")
-
-        # Bidirectional LSTM layer 
-        with tf.variable_scope('encoder'):
-            cell_final_fw = self.cell(FLAGS.hidden_size, state_is_tuple=True)
-            cell_final_bw = self.cell(FLAGS.hidden_size, state_is_tuple=True)
-            U, _ = tf.nn.bidirectional_dynamic_rnn(
-                cell_fw=cell_final_fw,
-                cell_bw=cell_final_bw,
-                inputs=tf.transpose(coatt_layer, perm = [0, 2, 1]),
-                sequence_length=self.p_len,
-                dtype=tf.float32
-            )
-            U = tf.concat(U, 2) 
-            self.U = tf.nn.dropout(U, self.dropout)
-            self.U = self.U[:,:FLAGS.paragraph_size,:]
-            print("U", self.U.get_shape())
-
-
-    
-
-    def decoder(self):
-        # def select(u, pos, idx):
-        #     u_idx = tf.gather(u, idx)
-        #     pos_idx = tf.gather(pos, idx)
-        #     return tf.reshape(tf.gather(u_idx, pos_idx), [-1])
-        # # selector layer:
-        # with tf.variable_scope('selector'):
-        #     cell_q = self.cell(FLAGS.hidden_size, state_is_tuple=True)
-        #     highway_alpha = highway_maxout(FLAGS.hidden_size, FLAGS.p)
-        #     highway_beta = highway_maxout(FLAGS.hidden_size, FLAGS.p)
-        #     # reshape self._u, (context, batch_size, 2*hidden_size)
-        #     U = tf.transpose(self.U[:,:FLAGS.paragraph_size,:], perm=[1, 0, 2])
-        #     print("U", U.get_shape())
-        #     loop_until = tf.to_int32(np.array(range(FLAGS.batch_size)))
-        #     # initial guess for index position for each batch
-        #     initial_guess = np.zeros((2, FLAGS.batch_size))
-        #     s, e = tf.split(initial_guess, 2, 0)
-        #     fn = lambda idx: select(self._u, s, idx)
-        #     u_s = tf.map_fn(lambda idx: fn(idx), loop_until, dtype=tf.float32)
-        #     fn = lambda idx: select(self._u, e, idx)
-        #     u_e = tf.map_fn(lambda idx: fn(idx), loop_until, dtype=tf.float32)
-
-
+    ## attention layer from paper coattention
+    def setup_attention_layer(self, D, Q):
+        Q = tf.transpose(Q, perm=[0, 2, 1])
+        # add tanh to Q
+        #Q = tf.nn.tanh(Q)
         # softmax layer
-        U_reshape = tf.reshape(self.U, shape=[-1,FLAGS.hidden_size*2])
-        W_start = tf.get_variable("W_start", shape=[2*FLAGS.hidden_size, 1], initializer=self.initializer)
-        b_start = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
-        self.logits_start_1 = tf.reshape(tf.matmul(U_reshape, W_start), shape=[-1, FLAGS.paragraph_size]) + b_start
-        print ("logits", self.logits_start_1)
-        self.logits_start = tf.nn.softmax(self.logits_start_1, -1)
-        self.yp_start = self.logits_start_1
-        print ("logis_start", self.logits_start_1.get_shape())
-        #self.U_s_index = tf.argmax(self.logits_start,1)
+        D = tf.transpose(D, perm=[0, 2, 1])
+        L = tf.matmul(tf.transpose(D, perm=[0, 2, 1]), Q)
 
-        W_end = tf.get_variable("W_end", shape=[2*FLAGS.hidden_size, 1], initializer=self.initializer)
-        b_end = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
-        self.logits_end_1 = (tf.reshape(tf.matmul(U_reshape, W_end), shape=[-1, FLAGS.paragraph_size]) + b_end)
-        self.logits_end = tf.nn.softmax(self.logits_end_1, -1)
-        #self.U_e_index = tf.argmax(self.logits_end,1)
-        print ("logis_end", self.logits_end_1.get_shape())
-        self.yp_end = self.logits_end_1
+        A_Q = tf.nn.softmax(L, dim=1)
+        A_D = tf.nn.softmax(tf.transpose(L, perm=[0,2,1]), dim=1)
+
+        C_Q = tf.matmul(D, A_Q)
+
+        p_emb_p = D
+        C_D = tf.matmul(tf.concat([Q, C_Q], 1), A_D)
+        p_concat = tf.concat([p_emb_p, C_D], 1)
+        return p_concat
+
     def setup_placeholder(self):
         self.dropout = tf.placeholder(tf.float32, shape=())
         self.q = tf.placeholder(tf.int32, [None, FLAGS.question_size], name="question")
@@ -204,8 +104,6 @@ class QASystem(object):
         self.a_e = tf.placeholder(tf.int32, [None], name="answer_end")
         self.p_len = tf.placeholder(tf.int32, [None], name="paragraph_len")
         self.q_len = tf.placeholder(tf.int32, [None], name = "question_len")
-        #self.add_column_question = tf.placeholder(tf.int32, [None, FLAGS.question_size], name="add_column_question")
-        #self.add_column_paragraph = tf.placeholder(tf.int32, [None, FLAGS.paragraph_size], name="add_column_paragraph")
 
     def setup_optimizer(self):
         optimizer = get_optimizer(FLAGS.optimizer)(FLAGS.learning_rate) #.minimize(self.loss)
@@ -217,10 +115,75 @@ class QASystem(object):
         self.norm = tf.global_norm(gradients)
         grads_and_vars = zip(gradients, variables)
         self.train_op = optimizer.apply_gradients(grads_and_vars)
+
+    def setup_system(self):
+        self.cell = tf.contrib.rnn.BasicLSTMCell
+
+        self.embedding_mat = tf.Variable(self.pretrained_embeddings, name="embed", dtype=tf.float32)
+        self.q_emb = tf.nn.embedding_lookup(self.embedding_mat, self.q)
+        self.p_emb = tf.nn.embedding_lookup(self.embedding_mat, self.p)
+
+        with tf.variable_scope("encode_qp"):
+            cell_fwd = self.cell(FLAGS.hidden_size, state_is_tuple=True)
+            cell_bwd = self.cell(FLAGS.hidden_size, state_is_tuple=True)
+
+            (output_q_fw, output_q_bw), (output_state_fw_q, output_state_bw_q) = tf.nn.bidirectional_dynamic_rnn(
+                cell_fw=cell_fwd,
+                cell_bw=cell_bwd,
+                inputs=self.q_emb,
+                sequence_length=self.q_len,
+                dtype=tf.float32,
+                scope='encode'
+            )
+            self.qq = tf.concat([output_q_fw, output_q_bw], 2)
+            self.qq = tf.nn.dropout(self.qq, self.dropout)
+
+            tf.get_variable_scope().reuse_variables()
+            outputs_p, _ = tf.nn.bidirectional_dynamic_rnn(
+                cell_fw=cell_fwd,
+                cell_bw=cell_bwd,
+                initial_state_fw=output_state_fw_q,
+                initial_state_bw=output_state_bw_q,
+                inputs=self.p_emb,
+                sequence_length=self.p_len,
+                dtype=tf.float32,
+                scope='encode'
+            )
+            self.pp = tf.concat(outputs_p, 2)
+            self.pp = tf.nn.dropout(self.pp, self.dropout)
+
+        self.coatt_layer = self.setup_attention_layer(self.pp, self.qq)
+
+        cell_final_fw = self.cell(FLAGS.hidden_size*2, state_is_tuple=True)
+        cell_final_bw = self.cell(FLAGS.hidden_size*2, state_is_tuple=True)
+        U, _ = tf.nn.bidirectional_dynamic_rnn(
+            cell_fw=cell_final_fw,
+            cell_bw=cell_final_bw,
+            inputs=tf.transpose(self.coatt_layer, perm = [0, 2, 1]),
+            sequence_length=self.p_len ,
+            dtype=tf.float32
+        )
+        U = tf.concat(U, 2)
+        U = tf.nn.dropout(U, self.dropout)
+        U_reshape = tf.reshape(U, shape=[-1,FLAGS.hidden_size*4])
+
+        # softmax layer
+        W_start = tf.get_variable("W_start", shape=[4*FLAGS.hidden_size, 1], initializer=self.initializer)
+        b_start = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
+        self.logits_start_1 = tf.reshape(tf.matmul(U_reshape, W_start), shape=[-1, FLAGS.paragraph_size]) + b_start
+        self.logits_start = tf.nn.softmax(self.logits_start_1, -1)
+        self.yp_start = self.logits_start
+        #self.U_s_index = tf.argmax(self.logits_start,1)
+
+        W_end = tf.get_variable("W_end", shape=[4*FLAGS.hidden_size, 1], initializer=self.initializer)
+        b_end = tf.Variable(tf.zeros([FLAGS.paragraph_size]))
+        self.logits_end_1 = (tf.reshape(tf.matmul(U_reshape, W_end), shape=[-1, FLAGS.paragraph_size]) + b_end)
+        self.logits_end = tf.nn.softmax(self.logits_end_1, -1)
+        #self.U_e_index = tf.argmax(self.logits_end,1)
+        self.yp_end = self.logits_end
+
     def setup_loss(self):
         with vs.variable_scope("loss"):
-            print ("self.a_s", self.a_s.get_shape())
-            print (self.logits_start_1.get_shape())
             self.loss_start_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_start_1, labels=self.a_s))
             self.loss_end_1 = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits_end_1, labels=self.a_e))
             a_s_pred = tf.argmax(self.yp_start, axis=1)

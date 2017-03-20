@@ -40,7 +40,7 @@ tf.app.flags.DEFINE_string("vocab_path", "data/squad/vocab.dat", "Path to vocab 
 tf.app.flags.DEFINE_string("embed_path", "", "Path to the trimmed GLoVe embedding (default: ./data/squad/glove.trimmed.{vocab_dim}.npz)")
 
 tf.app.flags.DEFINE_integer("question_size", 60, "Max Question Length")
-tf.app.flags.DEFINE_integer("paragraph_size", 350, "Max Context Paragraph Length")
+tf.app.flags.DEFINE_integer("paragraph_size", 400, "Max Context Paragraph Length")
 tf.app.flags.DEFINE_integer("hidden_size", 200, "size of hidden layer h_i")
 tf.app.flags.DEFINE_integer("sample_every", 100, "every 100 batch to plot one result")
 tf.app.flags.DEFINE_integer("sample_size", 100, "size of sample")
