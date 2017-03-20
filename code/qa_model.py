@@ -10,6 +10,9 @@ import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from tensorflow.python.ops import variable_scope as vs
+from tensorflow.python.ops import init_ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.util import nest
 
 import os
 from os.path import join as pjoin
@@ -50,6 +53,51 @@ def get_optimizer(opt):
         assert (False)
     return optfn
 
+def batch_linear(args, output_size, bias, bias_start=0.0, scope=None, name=None):
+  """Linear map: concat(W[i] * args[i]), where W[i] is a variable.
+  Args:
+    args: a 3D Tensor with shape [batch x m x n].
+    output_size: int, second dimension of W[i] with shape [output_size x m].
+    bias: boolean, whether to add a bias term or not.
+    bias_start: starting value to initialize the bias; 0 by default.
+    scope: (optional) Variable scope to create parameters in.
+    name: (optional) variable name.
+  Returns:
+    A 3D Tensor with shape [batch x output_size x n] equal to
+    concat(W[i] * args[i]), where W[i]s are newly created matrices.
+  Raises:
+    ValueError: if some of the arguments has unspecified or wrong shape.
+  """
+  if args is None or (nest.is_sequence(args) and not args):
+    raise ValueError("`args` must be specified")
+  if args.get_shape().ndims != 3:
+    raise ValueError("`args` must be a 3D Tensor")
+
+  shape = args.get_shape()
+  m = shape[1].value
+  n = shape[2].value
+  dtype = args.dtype
+
+  # Now the computation.
+  scope = vs.get_variable_scope()
+  with vs.variable_scope(scope) as outer_scope:
+    w_name = "weights_"
+    if name is not None: w_name += name
+    weights = vs.get_variable(
+        w_name, [output_size, m], dtype=dtype)
+    res = tf.map_fn(lambda x: math_ops.matmul(weights, x), args)
+    if not bias:
+      return res
+    with vs.variable_scope(outer_scope) as inner_scope:
+      b_name = "biases_"
+      if name is not None: b_name += name
+      inner_scope.set_partitioner(None)
+      biases = vs.get_variable(
+          b_name, [output_size, n],
+          dtype=dtype,
+          initializer=init_ops.constant_initializer(bias_start, dtype=dtype))
+  return tf.map_fn(lambda x: math_ops.add(x, biases), res)
+
 def get_minibatches(data, batch_size=-1, shuffle=True):
     batch = []
     indices = range(len(data))
@@ -78,23 +126,13 @@ class QASystem(object):
         self.saver = tf.train.Saver()
 
     def setup_attention_layer(self, D, Q):
-        Q = tf.transpose(Q, perm=[0, 2, 1])
-        # add tanh to Q
-        #Q = tf.nn.tanh(Q)
-        # softmax layer
-        D = tf.transpose(D, perm=[0, 2, 1])
-        L = tf.matmul(tf.transpose(D, perm=[0, 2, 1]), Q)
-
-        A_Q = tf.nn.softmax(L, dim=1)
+        L = tf.matmul(tf.transpose(D, perm=[0, 2, 1]), Q) # L shape: (?, paragraph_size+1, question_size+1)
+        A_Q = tf.nn.softmax(L, dim=1) # L shape: (?, paragraph_size+1, question_size+1)
         A_D = tf.nn.softmax(tf.transpose(L, perm=[0,2,1]), dim=1)
-
-        C_Q = tf.matmul(D, A_Q)
-
-        p_emb_p = D
-        C_D = tf.matmul(tf.concat([Q, C_Q], 1), A_D)
-        p_concat = tf.concat([p_emb_p, C_D], 1)
-        logging.info('p_concat shape: {}'.format(p_concat.get_shape()))
-        return p_concat
+        C_Q = tf.matmul(D, A_Q) # C_Q shape (?, hidden_size, question_size+1)
+        C_D = tf.matmul(tf.concat([Q, C_Q], 1), A_D) # C_D shape: (?, hidden_size*2, paragraph_size+1)s
+        coatt_layer = tf.concat([D, C_D], 1)
+        return coatt_layer
 
     def setup_placeholder(self):
         self.dropout = tf.placeholder(tf.float32, shape=())
@@ -137,6 +175,10 @@ class QASystem(object):
             )
             self.qq = tf.concat([output_q_fw, output_q_bw], 2)
             self.qq = tf.nn.dropout(self.qq, self.dropout)
+            fn_add_column = lambda x: tf.concat([x, tf.zeros([1, FLAGS.hidden_size*2], dtype=tf.float32)], 0)
+            self.qq = tf.map_fn(lambda x: fn_add_column(x), self.qq, dtype=tf.float32)
+            self.qq = tf.tanh(batch_linear(self.qq, FLAGS.question_size+1, True))
+            self.qq = tf.transpose(self.qq, perm=[0, 2, 1])
 
             tf.get_variable_scope().reuse_variables()
             outputs_p, _ = tf.nn.bidirectional_dynamic_rnn(
@@ -151,6 +193,9 @@ class QASystem(object):
             )
             self.pp = tf.concat(outputs_p, 2)
             self.pp = tf.nn.dropout(self.pp, self.dropout)
+            fn_add_column = lambda x: tf.concat([x, tf.zeros([1, FLAGS.hidden_size*2], dtype=tf.float32)], 0)
+            self.pp = tf.map_fn(lambda x: fn_add_column(x), self.pp, dtype=tf.float32)
+            self.pp = tf.transpose(self.pp, perm=[0, 2, 1])
 
         self.coatt_layer = self.setup_attention_layer(self.pp, self.qq)
         G = tf.transpose(self.coatt_layer, perm = [0, 2, 1])
@@ -323,6 +368,7 @@ class QASystem(object):
     def train(self, session, train_data, dev_data):
         best_score = 0.0
         for epoch in range(FLAGS.epochs):
+            self.epoch = epoch + 1
             with Timer("training epoch {}/{}".format(epoch + 1, FLAGS.epochs)):
                 logging.info("Epoch %d out of %d", epoch + 1, FLAGS.epochs)
                 self.run_epoch(session, train_data, dev_data)

@@ -127,7 +127,7 @@ def main(_):
     dev_data = zip(*load_data(FLAGS.data_dir, "dev"))
 
     #model_train_data = train_data + val_data + dev_data
-    model_train_data = val_data
+    model_train_data = train_data
     model_eval_data = val_data
 
     global_train_dir = '/tmp/cs224n-squad-train'
